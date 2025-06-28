@@ -1,14 +1,12 @@
-mod broadcaster;
+use std::{collections::HashMap, sync::Arc};
 
-use axum::{
-    extract::{Path, ws::WebSocketUpgrade},
-    response::IntoResponse,
-};
+use tokio::sync::{Mutex, broadcast};
 
-/// Upgrade HTTP to WebSocket and hand off to broadcaster
-pub async fn handle_ws(
-    Path((room, user)): Path<(String, String)>,
-    ws: WebSocketUpgrade,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| broadcaster::broadcaster(room, user, socket))
+pub type ChatHub = Arc<Mutex<HashMap<i64, broadcast::Sender<String>>>>;
+
+pub fn init_hub() -> ChatHub {
+    Arc::new(Mutex::new(HashMap::new()))
 }
+
+mod chat;
+pub use chat::chat_ws;

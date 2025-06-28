@@ -1,10 +1,21 @@
 import { request } from "@api/request";
 
 export type User = {
+  id: number;
   username: string;
 };
 
-export const createUser = async (username: string) => {
-  const response = await request.post<User>(`v1/user`, { username });
+export type LoginPayload = {
+  username: string;
+  password: string;
+};
+
+export const loginUser = async (data: LoginPayload) => {
+  const response = await request.post<User>(`login`, data);
+  return response.data;
+};
+
+export const getCurrentUser = async () => {
+  const response = await request.get<User>("whoami");
   return response.data;
 };

@@ -1,13 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateChatRequest {
-    pub room: String,
-    pub port: u16,
-    pub user: String,
-}
-
-#[derive(Serialize)]
-pub struct CreateChatResponse {
-    pub url: String,
+    pub name: String,
+    pub owner_id: i64,
 }

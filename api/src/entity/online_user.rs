@@ -4,24 +4,28 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize, Deserialize)]
-#[sea_orm(table_name = "chat")]
+#[sea_orm(table_name = "online_user")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub name: String,
-    pub owner_id: i64,
-    pub created_at: DateTime,
+    pub user_id: i64,
+    pub chat_id: i64,
+    pub joined_at: DateTime,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::message::Entity")]
-    Message,
-    #[sea_orm(has_many = "super::online_user::Entity")]
-    OnlineUser,
+    #[sea_orm(
+        belongs_to = "super::chat::Entity",
+        from = "Column::ChatId",
+        to = "super::chat::Column::Id",
+        on_update = "Cascade",
+        on_delete = "Cascade"
+    )]
+    Chat,
     #[sea_orm(
         belongs_to = "super::user::Entity",
-        from = "Column::OwnerId",
+        from = "Column::UserId",
         to = "super::user::Column::Id",
         on_update = "Cascade",
         on_delete = "Cascade"
@@ -29,15 +33,9 @@ pub enum Relation {
     User,
 }
 
-impl Related<super::message::Entity> for Entity {
+impl Related<super::chat::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::Message.def()
-    }
-}
-
-impl Related<super::online_user::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::OnlineUser.def()
+        Relation::Chat.def()
     }
 }
 

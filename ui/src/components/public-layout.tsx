@@ -1,4 +1,4 @@
-import { useAuth } from "@hooks/use-auth";
+import { useAuth } from "@hooks/auth-context";
 import { Navigate, Outlet } from "react-router-dom";
 
 export function PublicLayout() {

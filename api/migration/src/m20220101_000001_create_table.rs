@@ -15,6 +15,7 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(pk_auto(User::Id))
                     .col(string(User::Username).not_null())
+                    .col(string(User::Password).not_null())
                     .to_owned(),
             )
             .await?;
@@ -62,7 +63,7 @@ impl MigrationTrait for Migration {
                     )
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk-chat-sender_id-user-id")
+                            .name("fk-user-sender_id-user-id")
                             .from(Message::Table, Message::SenderId)
                             .to(User::Table, User::Id)
                             .on_delete(ForeignKeyAction::Cascade)
@@ -70,8 +71,42 @@ impl MigrationTrait for Migration {
                     )
                     .foreign_key(
                         ForeignKey::create()
-                            .name("fk-chat-chat_id-chat-id")
+                            .name("fk-chat-chat-id-chat-id")
                             .from(Message::Table, Message::ChatId)
+                            .to(Chat::Table, Chat::Id)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+
+        manager
+            .create_table(
+                Table::create()
+                    .table(OnlineUser::Table)
+                    .if_not_exists()
+                    .col(pk_auto(OnlineUser::Id))
+                    .col(ColumnDef::new(OnlineUser::UserId).big_integer().not_null())
+                    .col(ColumnDef::new(OnlineUser::ChatId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(OnlineUser::JoinedAt)
+                            .timestamp()
+                            .not_null()
+                            .default(Expr::current_timestamp()),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk-user-user_id-user-id")
+                            .from(OnlineUser::Table, OnlineUser::UserId)
+                            .to(User::Table, User::Id)
+                            .on_delete(ForeignKeyAction::Cascade)
+                            .on_update(ForeignKeyAction::Cascade),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk-chat-chat_id-chat-id")
+                            .from(OnlineUser::Table, OnlineUser::ChatId)
                             .to(Chat::Table, Chat::Id)
                             .on_delete(ForeignKeyAction::Cascade)
                             .on_update(ForeignKeyAction::Cascade),
@@ -85,6 +120,10 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
+            .drop_table(Table::drop().table(OnlineUser::Table).to_owned())
+            .await?;
+
+        manager
             .drop_table(Table::drop().table(Message::Table).to_owned())
             .await?;
 
@@ -95,6 +134,7 @@ impl MigrationTrait for Migration {
         manager
             .drop_table(Table::drop().table(User::Table).to_owned())
             .await?;
+
         Ok(())
     }
 }
@@ -104,6 +144,7 @@ enum User {
     Table,
     Id,
     Username,
+    Password,
 }
 
 #[derive(DeriveIden)]
@@ -123,4 +164,13 @@ enum Message {
     SenderId,
     ChatId,
     CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum OnlineUser {
+    Table,
+    Id,
+    UserId,
+    ChatId,
+    JoinedAt,
 }

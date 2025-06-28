@@ -1,23 +1,24 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Container, Card, Title, Input, Button } from "../components/Styled";
-import { useCreateUser } from "@api/users/hooks";
+import { useAuth } from "@hooks/auth-context";
 
 export const Login = () => {
+  const { handleLogin } = useAuth();
+
   const [rawName, setRawName] = useState("");
-  const createUser = useCreateUser();
+  const [rawPassword, setRawPassword] = useState("");
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname || "/create";
 
   const handleSubmit = async () => {
     const name = rawName.trim();
-    if (name.trim()) {
-      await createUser.mutateAsync(name, {
-        onSuccess: () => localStorage.setItem("username", name),
-      });
-      navigate(from, { replace: true });
-    }
+    const password = rawPassword.trim();
+    if (!name || !password) return;
+
+    handleLogin({ username: name, password });
+    navigate(from, { replace: true });
   };
 
   return (
@@ -28,6 +29,12 @@ export const Login = () => {
           placeholder="Enter your name"
           value={rawName}
           onChange={(e) => setRawName(e.target.value)}
+        />
+        <Input
+          placeholder="Enter your password"
+          value={rawPassword}
+          type="password"
+          onChange={(e) => setRawPassword(e.target.value)}
         />
         <Button onClick={handleSubmit}>Continue</Button>
       </Card>

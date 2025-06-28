@@ -1,16 +1,21 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Container, Card, Title, Input, Button } from "../components/Styled";
+import { useCreateChat } from "@api/chat/hooks";
+import { useAuth } from "@hooks/auth-context";
 
 export const CreateChat = () => {
-  const [port, setPort] = useState("");
+  const { user } = useAuth();
+  const [name, setName] = useState("");
   const navigate = useNavigate();
+  const createChat = useCreateChat();
 
-  const handleCreate = () => {
-    if (port.trim()) {
-      const roomId = port.trim();
-      navigate(`/chat/${roomId}`);
-    }
+  const handleCreate = async () => {
+    const { id } = await createChat.mutateAsync({
+      name,
+      ownerId: user.id,
+    });
+    navigate(`/chat/${id}`);
   };
 
   return (
@@ -18,9 +23,9 @@ export const CreateChat = () => {
       <Card>
         <Title>Create Server</Title>
         <Input
-          placeholder="Room Number"
-          value={port}
-          onChange={(e) => setPort(e.target.value)}
+          placeholder="Chat Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
         />
         <Button onClick={handleCreate}>Create</Button>
         <Button

@@ -1,12 +1,24 @@
+use crate::AppState;
+use axum::{
+    Router,
+    routing::{get, post},
+};
+
+mod active_chats;
 mod create_chat;
-mod create_user;
-mod join_chat;
+mod login;
+mod register;
+mod who_am_i;
 
-use axum::{Router, routing};
-
-pub fn router() -> Router {
+pub fn public_router() -> Router<AppState> {
     Router::new()
-        .route("/api/v1/create", routing::post(create_chat::create_chat))
-        .route("/api/v1/join/{room}", routing::get(join_chat::join_chat))
-        .route("/api/v1/user", routing::post(create_user::create_user))
+        .route("/register", post(register::register))
+        .route("/login", post(login::login))
+}
+
+pub fn protected_router() -> Router<AppState> {
+    Router::new()
+        .route("/chat", post(create_chat::create_chat))
+        .route("/chat", get(active_chats::active_chats))
+        .route("/whoami", get(who_am_i::who_am_i))
 }

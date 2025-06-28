@@ -1,7 +1,7 @@
 #[derive(Clone)]
 pub struct Settings {
     pub http_port: u16,
-    pub ws_port: u16,
+    pub jwt_secret: String,
 }
 
 impl Settings {
@@ -10,10 +10,10 @@ impl Settings {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(8002);
-        let ws_port = std::env::var("WS_PORT")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(8003);
-        Settings { http_port, ws_port }
+        let jwt_secret = "".to_string();
+        Settings {
+            http_port,
+            jwt_secret,
+        }
     }
 }

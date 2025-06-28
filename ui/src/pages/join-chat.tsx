@@ -1,10 +1,17 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Container, Card, Title, Input, Button } from "../components/Styled";
+import { useLoadChatList } from "@api/chat/hooks";
+import styled from "styled-components";
 
 export const JoinChat: React.FC = () => {
   const [roomId, setRoomId] = useState("");
   const navigate = useNavigate();
+  const { data, isLoading } = useLoadChatList();
+
+  if (!data || isLoading) {
+    return null;
+  }
 
   const handleJoin = () => {
     if (roomId.trim()) {
@@ -12,10 +19,14 @@ export const JoinChat: React.FC = () => {
     }
   };
 
+  const handleClick = (id: number) => {
+    navigate(`/chat/${id}`);
+  };
+
   return (
     <Container>
       <Card>
-        <Title>Join Server</Title>;
+        <Title>Join Server</Title>
         <Input
           placeholder="Room Number"
           value={roomId}
@@ -28,7 +39,30 @@ export const JoinChat: React.FC = () => {
         >
           Create New
         </Button>
+        <ChatList>
+          {data.map((chat) => {
+            return (
+              <Chat key={chat.id} onClick={() => handleClick(chat.id)}>
+                Name: {chat.name}
+              </Chat>
+            );
+          })}
+        </ChatList>
       </Card>
     </Container>
   );
 };
+
+const ChatList = styled.div({
+  padding: "0.5rem",
+  display: "flex",
+  gap: "1rem",
+  flexDirection: "column",
+});
+
+const Chat = styled.div({
+  display: "flex",
+  justifyContent: "center",
+  padding: "0.5rem",
+  border: "1px solid black",
+});

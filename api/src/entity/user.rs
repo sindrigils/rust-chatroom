@@ -9,6 +9,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub username: String,
+    pub password: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -17,6 +18,8 @@ pub enum Relation {
     Chat,
     #[sea_orm(has_many = "super::message::Entity")]
     Message,
+    #[sea_orm(has_many = "super::online_user::Entity")]
+    OnlineUser,
 }
 
 impl Related<super::chat::Entity> for Entity {
@@ -28,6 +31,12 @@ impl Related<super::chat::Entity> for Entity {
 impl Related<super::message::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Message.def()
+    }
+}
+
+impl Related<super::online_user::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::OnlineUser.def()
     }
 }
 

@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Serialize)]
-pub struct JoinChatResponse {
-    pub room: String,
-    pub message: String,
+#[derive(Deserialize, Serialize)]
+pub struct JoinChatRequest {
+    pub user_id: i64,
+    pub chat_id: i64,
 }

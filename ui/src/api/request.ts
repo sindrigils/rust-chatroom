@@ -1,9 +1,10 @@
 import axios from "axios";
 import camelcaseKeys from "camelcase-keys";
-import { config } from "../app-config";
 
 const instance = axios.create({
-  baseURL: config.API_URL,
+  baseURL: "/api/v1", // <<< relative path, not http://127.0.0.1:8002
+
+  withCredentials: true,
 });
 
 // Convert incoming data to camelCase

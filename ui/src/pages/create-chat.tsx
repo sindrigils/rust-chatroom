@@ -1,8 +1,18 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Container, Card, Title, Input, Button } from "../components/Styled";
+
 import { useCreateChat } from "@api/chat/hooks";
 import { useAuth } from "@hooks/auth-context";
+import {
+  ActionButton,
+  Alternate,
+  FormCard,
+  FormField,
+  Header,
+  LinkText,
+  Page,
+  TextInput,
+} from "@components/Styled";
 
 export const CreateChat = () => {
   const { user } = useAuth();
@@ -19,22 +29,22 @@ export const CreateChat = () => {
   };
 
   return (
-    <Container>
-      <Card>
-        <Title>Create Server</Title>
-        <Input
-          placeholder="Chat Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-        <Button onClick={handleCreate}>Create</Button>
-        <Button
-          onClick={() => navigate("/join")}
-          style={{ marginTop: "0.5rem", background: "#6c757d" }}
-        >
-          Join Existing
-        </Button>
-      </Card>
-    </Container>
+    <Page>
+      <FormCard>
+        <Header>New Chat Room</Header>
+        <FormField>
+          <TextInput
+            placeholder="Room name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </FormField>
+        <ActionButton onClick={handleCreate}>Create Room</ActionButton>
+        <Alternate>
+          Want to join instead?
+          <LinkText onClick={() => navigate("/join")}>Join Room</LinkText>
+        </Alternate>
+      </FormCard>
+    </Page>
   );
 };

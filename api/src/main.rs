@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let protected = protected_router().layer(from_fn_with_state(state.clone(), require_auth));
 
     let api_v1 = Router::new()
-        .nest("/api/v1", public.clone())
+        .nest("/api/v1", public)
         .nest("/api/v1", protected);
 
     let ws_route = Router::new()

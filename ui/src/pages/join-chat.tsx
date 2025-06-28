@@ -1,9 +1,22 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Container, Card, Title, Input, Button } from "../components/Styled";
 import { useLoadChatList } from "@api/chat/hooks";
-import styled from "styled-components";
 import type { Chat } from "@api/chat/request";
+import {
+  ActionButton,
+  ChatItem,
+  ChatList,
+  Controls,
+  Header,
+  ListCard,
+  Loading,
+  Page,
+  RoomName,
+  SecondaryButton,
+  TextInput,
+  UserCount,
+} from "@components/Styled";
+
 export interface NewChat {
   type: "new_chat";
   content: Chat;
@@ -17,37 +30,21 @@ export interface UserCount {
   chatId: number;
   content: number;
 }
-
 export type WSData = NewChat | DeleteChat | UserCount;
 
-export const JoinChat: React.FC = () => {
+export const JoinChat = () => {
   const [roomId, setRoomId] = useState("");
   const [chats, setChats] = useState<Chat[]>([]);
-
   const navigate = useNavigate();
   const { data, isLoading } = useLoadChatList();
 
-  const handleJoin = () => {
-    if (roomId.trim()) {
-      navigate(`/chat/${roomId.trim()}`);
-    }
-  };
-
-  const handleClick = (id: number) => {
-    navigate(`/chat/${id}`);
-  };
-
   useEffect(() => {
-    if (data) {
-      setChats(data);
-    }
+    if (data) setChats(data);
   }, [data]);
-
   useEffect(() => {
     const ws = new WebSocket("/ws/chat-list");
-
-    ws.onmessage = ({ data: raw }) => {
-      const payload: WSData = JSON.parse(raw);
+    ws.onmessage = ({ data }) => {
+      const payload: WSData = JSON.parse(data as string);
       setChats((curr) => {
         switch (payload.type) {
           case "new_chat":
@@ -65,58 +62,42 @@ export const JoinChat: React.FC = () => {
         }
       });
     };
-
     return () => ws.close();
   }, []);
 
-  if (!data || isLoading) {
-    return null;
-  }
+  if (isLoading) return <Loading>Loading…</Loading>;
 
   return (
-    <Container>
-      <Card>
-        <Title>Join Server</Title>
-        <Input
-          placeholder="Room Number"
-          value={roomId}
-          onChange={(e) => setRoomId(e.target.value)}
-        />
-        <Button onClick={handleJoin}>Join</Button>
-        <Button
-          onClick={() => navigate("/create")}
-          style={{ marginTop: "0.5rem", background: "#6c757d" }}
-        >
-          Create New
-        </Button>
+    <Page>
+      <ListCard>
+        <Header>Join Server</Header>
+        <Controls>
+          <TextInput
+            placeholder="Room Number"
+            value={roomId}
+            onChange={(e) => setRoomId(e.target.value)}
+          />
+          <ActionButton
+            onClick={() => roomId.trim() && navigate(`/chat/${roomId.trim()}`)}
+          >
+            Join
+          </ActionButton>
+          <SecondaryButton onClick={() => navigate("/create")}>
+            Create New
+          </SecondaryButton>
+        </Controls>
         <ChatList>
-          {chats.map((chat) => {
-            return (
-              <Chat key={chat.id} onClick={() => handleClick(chat.id)}>
-                <span>Name: {chat.name}</span>
-                <span>Active users: {chat.activeUsers}</span>
-              </Chat>
-            );
-          })}
+          {chats.map((chat) => (
+            <ChatItem
+              key={chat.id}
+              onClick={() => navigate(`/chat/${chat.id}`)}
+            >
+              <RoomName>{chat.name}</RoomName>
+              <UserCount>{chat.activeUsers} online</UserCount>
+            </ChatItem>
+          ))}
         </ChatList>
-      </Card>
-    </Container>
+      </ListCard>
+    </Page>
   );
 };
-
-const ChatList = styled.div({
-  padding: "0.5rem",
-  display: "flex",
-  gap: "1rem",
-  flexDirection: "column",
-});
-
-const Chat = styled.div({
-  display: "flex",
-  justifyContent: "center",
-  alignItems: "center",
-  flexDirection: "column",
-  border: "1px solid black",
-  gap: "0.5rem",
-  padding: "0.5rem",
-});

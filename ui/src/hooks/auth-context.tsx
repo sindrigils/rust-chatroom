@@ -1,11 +1,16 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { useLoginUser, useCurrentUserQuery } from "@api/users/hooks";
+import {
+  useLoginUser,
+  useCurrentUserQuery,
+  useRegisterUser,
+} from "@api/users/hooks";
 import type { LoginPayload, User } from "@api/users/request";
 
 type AuthContextType = {
   user: User | null;
   handleLogin: (data: LoginPayload) => Promise<void>;
+  handleRegister: (data: LoginPayload) => void;
   isAuthenticated: boolean;
 };
 
@@ -18,7 +23,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const { refetch: fetchUser } = useCurrentUserQuery();
 
-  const { mutateAsync: login } = useLoginUser();
+  const login = useLoginUser();
+  const register = useRegisterUser();
 
   useEffect(() => {
     fetchUser().then(({ data }) => {
@@ -26,10 +32,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     });
   }, [fetchUser]);
 
-  const handleLogin = async (data: LoginPayload) => {
-    await login(data);
-    const { data: me } = await fetchUser();
-    setUser(me ?? null);
+  const handleLogin = async (data: LoginPayload, onSuccess?: () => void) => {
+    await login.mutateAsync(data, {
+      onSuccess: async () => {
+        const { data: me } = await fetchUser();
+        setUser(me ?? null);
+        onSuccess?.();
+      },
+    });
+  };
+
+  const handleRegister = async (data: LoginPayload, onSuccess?: () => void) => {
+    await register.mutateAsync(data, {
+      onSuccess: () => {
+        onSuccess?.();
+      },
+    });
   };
 
   return (
@@ -37,6 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       value={{
         user,
         handleLogin,
+        handleRegister,
         isAuthenticated: Boolean(user),
       }}
     >

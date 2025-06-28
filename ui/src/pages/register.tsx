@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 import { useAuth } from "@hooks/auth-context";
 import {
@@ -14,30 +14,26 @@ import {
   TextInput,
 } from "@components/Styled";
 
-export const Login = () => {
-  const { handleLogin } = useAuth();
+export const Register = () => {
+  const { handleRegister } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
-  const from = useLocation().state?.from?.pathname || "/create";
 
-  const onSubmit = () => {
-    const user = username.trim();
-    const pass = password.trim();
-    if (!user || !pass) return;
-    handleLogin({ username: user, password: pass });
-    navigate(from, { replace: true });
+  const onSubmit = async () => {
+    handleRegister({ username, password });
+    navigate("/");
   };
 
   return (
     <Page>
       <FormCard>
-        <Header>Welcome Back</Header>
+        <Header>Create Account</Header>
         <FormField>
           <Label htmlFor="username">Username</Label>
           <TextInput
             id="username"
-            placeholder="e.g. johndoe"
+            placeholder="Choose a username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
           />
@@ -52,12 +48,10 @@ export const Login = () => {
             onChange={(e) => setPassword(e.target.value)}
           />
         </FormField>
-        <ActionButton onClick={onSubmit}>Log In</ActionButton>
+        <ActionButton onClick={onSubmit}>Register</ActionButton>
         <Alternate>
-          New here?{" "}
-          <LinkText onClick={() => navigate("/register")}>
-            Create an account
-          </LinkText>
+          Already have an account?
+          <LinkText onClick={() => navigate("/")}>Log In</LinkText>
         </Alternate>
       </FormCard>
     </Page>

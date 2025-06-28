@@ -8,6 +8,7 @@ import { JoinChat } from "@pages/join-chat";
 import { ChatRoom } from "@pages/chat-room";
 import { Login } from "@pages/login";
 import { AuthProvider } from "@hooks/auth-context";
+import { Register } from "@pages/register";
 
 export const App = () => (
   <QueryClientProvider>
@@ -15,6 +16,7 @@ export const App = () => (
       <BrowserRouter>
         <Routes>
           <Route element={<PublicLayout />}>
+            <Route path="/register" element={<Register />} />
             <Route path="/" element={<Login />} />
           </Route>
 

@@ -11,7 +11,12 @@ export type LoginPayload = {
 };
 
 export const loginUser = async (data: LoginPayload) => {
-  const response = await request.post<User>(`login`, data);
+  const response = await request.post<User>("login", data);
+  return response.data;
+};
+
+export const registerUser = async (data: LoginPayload) => {
+  const response = await request.post("register", data);
   return response.data;
 };
 

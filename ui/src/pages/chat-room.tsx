@@ -3,10 +3,17 @@ import { useEffect, useState, useRef, type KeyboardEvent } from "react";
 import { useParams } from "react-router-dom";
 import styled from "styled-components";
 
+type WSData = {
+  type: "message" | "user_list";
+  content: string | string[];
+};
+
 export const ChatRoom = () => {
   const { roomId = "" } = useParams<{ roomId: string }>();
   const { user } = useAuth();
+
   const [messages, setMessages] = useState<string[]>([]);
+  const [activeUsers, setActiveUsers] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -15,12 +22,30 @@ export const ChatRoom = () => {
 
     ws.onopen = () => console.log("🟢 WS open", ws.url);
     ws.onmessage = (e) => {
-      console.log("⬅️", e.data);
-      // add whatever the server sent into `messages`
-      setMessages((prev) => [...prev, e.data as string]);
+      const raw = e.data as string;
+      let data: WSData;
+      try {
+        data = JSON.parse(raw);
+        console.log("just got data: ", data);
+      } catch {
+        console.warn("Received non-JSON frame:", raw);
+        return;
+      }
+
+      // 3) now handle the two cases
+      switch (data.type) {
+        case "message":
+          setMessages((prev) => [...prev, data.content as string]);
+          break;
+
+        case "user_list":
+          setActiveUsers(data.content as string[]);
+          break;
+      }
     };
-    ws.onerror = (e) => console.error("⚠️", e);
-    ws.onclose = (e) => console.log("🔴 closed", e.reason, e.code);
+
+    ws.onerror = (e) => console.error("⚠️ WS error", e);
+    ws.onclose = (e) => console.log("🔴 WS closed", e.reason, e.code);
 
     wsRef.current = ws;
     return () => {
@@ -29,11 +54,10 @@ export const ChatRoom = () => {
         ws.close();
       }
     };
-  }, []);
+  }, [roomId]);
 
   const sendMessage = () => {
     if (input.trim() && wsRef.current?.readyState === WebSocket.OPEN) {
-      // 3) Send the raw text; your server prefixes it with user_id
       wsRef.current.send(input.trim());
       setInput("");
     }
@@ -46,7 +70,18 @@ export const ChatRoom = () => {
   return (
     <PageContainer>
       <ChatCard>
-        <Header>Room: {roomId}</Header>
+        <Header>
+          Room: {roomId}
+          <UserSelect>
+            <option disabled>Online ({activeUsers.length})</option>
+            {activeUsers.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </UserSelect>
+        </Header>
+
         <MessagesContainer>
           {messages.map((msg, i) => (
             <MessageBubble key={i} isOwn={msg.startsWith(`${user.id}:`)}>
@@ -54,6 +89,7 @@ export const ChatRoom = () => {
             </MessageBubble>
           ))}
         </MessagesContainer>
+
         <InputBar>
           <TextInput
             placeholder="Type your message…"
@@ -92,11 +128,22 @@ const ChatCard = styled.div`
 `;
 
 const Header = styled.div`
+  display: flex;
+  align-items: center;
   padding: 1rem;
   background: #495057;
   color: #fff;
   font-weight: bold;
   font-size: 1.1rem;
+`;
+
+// The new dropdown
+const UserSelect = styled.select`
+  margin-left: 1rem;
+  padding: 0.25rem;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
 `;
 
 const MessagesContainer = styled.div`

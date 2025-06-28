@@ -10,8 +10,8 @@ pub struct Model {
     pub id: i32,
     #[sea_orm(column_type = "Text")]
     pub content: String,
-    pub sender_id: i64,
-    pub chat_id: i64,
+    pub sender_id: i32,
+    pub chat_id: i32,
     pub created_at: DateTime,
 }
 

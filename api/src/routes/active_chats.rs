@@ -1,17 +1,34 @@
-use crate::AppState;
-use crate::entity::chat;
 use axum::{Json, extract::State, http::StatusCode};
-use sea_orm::EntityTrait;
+use sea_orm::{EntityTrait, QuerySelect, sea_query::Expr};
 use tower_cookies::Cookies;
+
+use crate::{
+    AppState,
+    entity::{chat, online_user},
+    models::chat::Chat,
+};
 
 pub async fn active_chats(
     _: Cookies,
     State(state): State<AppState>,
-) -> Result<Json<Vec<chat::Model>>, StatusCode> {
-    let chats = chat::Entity::find().all(&state.db).await.map_err(|err| {
-        eprintln!("DB error loading chats: {}", err);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+) -> Result<Json<Vec<Chat>>, StatusCode> {
+    let rows = chat::Entity::find()
+        .left_join(online_user::Entity)
+        .select_only()
+        .column(chat::Column::Id)
+        .column(chat::Column::Name)
+        .column_as(
+            Expr::col((online_user::Entity, online_user::Column::UserId)).count(),
+            "active_users",
+        )
+        .group_by(chat::Column::Id)
+        .into_model::<Chat>()
+        .all(&state.db)
+        .await
+        .map_err(|e| {
+            eprintln!("DB error loading chats: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    Ok(Json(chats))
+    Ok(Json(rows))
 }

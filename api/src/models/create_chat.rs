@@ -4,5 +4,5 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub struct CreateChatRequest {
     pub name: String,
-    pub owner_id: i64,
+    pub owner_id: i32,
 }

@@ -5,11 +5,10 @@ export type CreateChat = {
   name: string;
 };
 
-export type Chat = {
+export type Chat = CreateChat & {
   id: number;
-  name: string;
-  ownerId: number;
   createdAt: Date;
+  activeUsers: number;
 };
 
 export const createChat = async (data: CreateChat) => {

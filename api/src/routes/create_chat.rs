@@ -3,6 +3,7 @@ use crate::{entity::chat, models::create_chat::*};
 use axum::extract::State;
 use axum::{extract::Json, http::StatusCode};
 use sea_orm::{ActiveModelTrait, ActiveValue::Set};
+use tokio::sync::broadcast;
 use tower_cookies::Cookies;
 
 pub async fn create_chat(
@@ -20,6 +21,17 @@ pub async fn create_chat(
         eprintln!("DB insert error: {}", err);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+
+    let payload = serde_json::json!({
+        "type": "new_chat",
+        "content": {"id": inserted.id, "name": inserted.name, "active_users": 0},
+    })
+    .to_string();
+
+    let mut map = state.hub.lock().await;
+    let global_tx = map.entry(0).or_insert_with(|| broadcast::channel(100).0);
+
+    let _ = global_tx.send(payload);
 
     Ok((StatusCode::CREATED, Json(inserted)))
 }

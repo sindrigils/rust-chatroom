@@ -2,7 +2,7 @@ use crate::{
     errors::handle_error,
     middleware::require_auth,
     routes::{protected_router, public_router},
-    ws::{ChatHub, chat_ws, init_hub},
+    ws::{ChatHub, chat_list_ws, chat_ws, init_hub},
 };
 use axum::{
     Router,
@@ -48,10 +48,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/api/v1", public.clone())
         .nest("/api/v1", protected);
 
-    let ws_route = Router::new().route(
-        "/ws/chat",
-        get(chat_ws).layer(from_fn_with_state(state.clone(), require_auth)),
-    );
+    let ws_route = Router::new()
+        .route("/ws/chat", get(chat_ws))
+        .route("/ws/chat-list", get(chat_list_ws))
+        .layer(from_fn_with_state(state.clone(), require_auth));
 
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::exact("http://localhost:3000".parse().unwrap()))

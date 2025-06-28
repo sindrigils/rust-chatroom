@@ -27,7 +27,7 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(pk_auto(Chat::Id))
                     .col(string(Chat::Name).not_null())
-                    .col(ColumnDef::new(Chat::OwnerId).big_integer().not_null())
+                    .col(ColumnDef::new(Chat::OwnerId).integer().not_null())
                     .col(
                         ColumnDef::new(Chat::CreatedAt)
                             .timestamp()
@@ -53,8 +53,8 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(pk_auto(Message::Id))
                     .col(text(Message::Content))
-                    .col(ColumnDef::new(Message::SenderId).big_integer().not_null())
-                    .col(ColumnDef::new(Message::ChatId).big_integer().not_null())
+                    .col(ColumnDef::new(Message::SenderId).integer().not_null())
+                    .col(ColumnDef::new(Message::ChatId).integer().not_null())
                     .col(
                         ColumnDef::new(Message::CreatedAt)
                             .timestamp()
@@ -87,8 +87,8 @@ impl MigrationTrait for Migration {
                     .table(OnlineUser::Table)
                     .if_not_exists()
                     .col(pk_auto(OnlineUser::Id))
-                    .col(ColumnDef::new(OnlineUser::UserId).big_integer().not_null())
-                    .col(ColumnDef::new(OnlineUser::ChatId).big_integer().not_null())
+                    .col(ColumnDef::new(OnlineUser::UserId).integer().not_null())
+                    .col(ColumnDef::new(OnlineUser::ChatId).integer().not_null())
                     .col(
                         ColumnDef::new(OnlineUser::JoinedAt)
                             .timestamp()

@@ -1,6 +1,75 @@
-use axum::{http::StatusCode, response::IntoResponse};
+use axum::{
+    Json,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
+use derive_more::From;
+use serde::Serialize;
+use std::fmt;
+use tokio::task::JoinError;
+use tracing::error;
 
-pub async fn handle_error(err: impl std::fmt::Display) -> impl IntoResponse {
-    let body = format!("{{ \"error\": \"{}\" }}", err);
-    (StatusCode::INTERNAL_SERVER_ERROR, body)
+#[derive(Debug, From)]
+pub enum Error {
+    #[from]
+    Db(sea_orm::DbErr),
+    #[from]
+    Bcrypt(bcrypt::BcryptError),
+    #[from]
+    Jwt(jsonwebtoken::errors::Error),
+    #[from]
+    Join(JoinError),
+
+    NotFound,
+    Unauthorized,
+    TimestampOverflow,
 }
+
+#[derive(Serialize)]
+struct ErrorBody {
+    error: &'static str,
+}
+
+impl IntoResponse for Error {
+    fn into_response(self) -> Response {
+        // Destructure the enum so we actually “use” every inner error:
+        let (status, msg) = match self {
+            // 1) Domain-specific:
+            Error::NotFound => (StatusCode::NOT_FOUND, "not found"),
+            Error::Unauthorized => (StatusCode::UNAUTHORIZED, "invalid credentials"),
+
+            // 2) Infrastructure errors—log their inner payloads:
+            Error::Db(e) => {
+                error!("database error: {:?}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+            }
+            Error::Bcrypt(e) => {
+                error!("bcrypt error: {:?}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+            }
+            Error::Jwt(e) => {
+                error!("jwt encoding error: {:?}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+            }
+            Error::Join(e) => {
+                error!("task join error: {:?}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+            }
+
+            // 3) Errors that should never happen
+            Error::TimestampOverflow => (StatusCode::INTERNAL_SERVER_ERROR, "something went wrong"),
+        };
+
+        // Return the sanitized JSON body
+        let body = Json(ErrorBody { error: msg });
+        (status, body).into_response()
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Delegate to Debug so you still get all the payload in your logs if you ever log `%self`
+        write!(f, "{self:?}")
+    }
+}
+impl std::error::Error for Error {}

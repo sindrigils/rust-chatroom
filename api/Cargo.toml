@@ -19,6 +19,10 @@ jsonwebtoken = "8"
 chrono = "0.4.41"
 bcrypt = "0.17.0"
 dotenv = "0.15"
+derive_more = "0.99"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+
 
 [dev-dependencies]
 sea-orm-cli = "1.1"

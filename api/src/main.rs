@@ -1,12 +1,12 @@
 use crate::{
-    errors::handle_error,
     middleware::require_auth,
     routes::{protected_router, public_router},
     ws::{ChatHub, chat_list_ws, chat_ws, init_hub},
 };
+use tracing_subscriber;
+
 use axum::{
     Router,
-    error_handling::HandleErrorLayer,
     http::{Method, header},
     middleware::from_fn_with_state,
     routing::get,
@@ -16,7 +16,7 @@ use dotenv::dotenv;
 
 use sea_orm::{Database, DatabaseConnection};
 use std::{net::SocketAddr, time::Duration};
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::broadcast};
 use tower_cookies::CookieManagerLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -33,11 +33,13 @@ pub struct AppState {
     pub db: DatabaseConnection,
     pub settings: config::Settings,
     pub hub: ChatHub,
+    pub chat_list_tx: broadcast::Sender<String>,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
+    tracing_subscriber::fmt::init();
 
     let db = Database::connect(
         std::env::var("DATABASE_URL").expect("no DATABASE_URL found in environment"),
@@ -45,7 +47,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     let settings = config::Settings::new();
     let hub = init_hub();
-    let state = AppState { db, settings, hub };
+    let (chat_list_tx, _) = broadcast::channel(100);
+    let state = AppState {
+        db,
+        settings,
+        hub,
+        chat_list_tx,
+    };
 
     let public = public_router();
     let protected = protected_router().layer(from_fn_with_state(state.clone(), require_auth));
@@ -76,7 +84,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .merge(ws_route)
         .layer(CookieManagerLayer::new())
         .layer(cors)
-        .layer(HandleErrorLayer::new(handle_error))
         .with_state(state.clone());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], state.settings.http_port));

@@ -6,30 +6,24 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::Sender;
 
-use crate::{AppState, ws::ChatHub};
+use crate::AppState;
 
 pub async fn chat_list_ws(
     State(state): State<AppState>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    let hub = state.hub.clone();
+    let channel = state.chat_list_tx;
 
     ws.on_upgrade(move |socket| async move {
-        handle_chat_list_socket(socket, hub).await;
+        handle_chat_list_socket(socket, channel).await;
     })
 }
 
-async fn handle_chat_list_socket(socket: WebSocket, hub: ChatHub) {
+async fn handle_chat_list_socket(socket: WebSocket, channel: Sender<String>) {
     let (mut tx, mut rx_ws) = socket.split();
-
-    let mut rx = {
-        let mut map = hub.lock().await;
-        map.entry(0)
-            .or_insert_with(|| broadcast::channel(100).0)
-            .subscribe()
-    };
+    let mut rx = channel.subscribe();
 
     tokio::spawn(async move {
         while let Ok(raw) = rx.recv().await {

@@ -1,13 +1,14 @@
-use axum::{Json, extract::State, response::IntoResponse};
+use axum::{Json, extract::State};
 use bcrypt::verify;
 use chrono::{Duration, Utc};
 use hyper::StatusCode;
-use jsonwebtoken::errors::Error as JwtError;
+
 use jsonwebtoken::{EncodingKey, Header, encode};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use tower_cookies::Cookies;
 use tower_cookies::cookie::{CookieBuilder, SameSite};
 
+use crate::errors::Error;
 use crate::{
     AppState,
     entity::user,
@@ -18,33 +19,26 @@ pub async fn login(
     jar: Cookies,
     State(state): State<AppState>,
     Json(payload): Json<LoginPayload>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let maybe_user = user::Entity::find()
+) -> Result<StatusCode, Error> {
+    let user = user::Entity::find()
         .filter(user::Column::Username.eq(payload.username))
         .one(&state.db)
-        .await
-        .map_err(|err| {
-            eprintln!("DB error: {}", err);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .await?
+        .ok_or(Error::NotFound)?;
 
-    let user = match maybe_user {
-        Some(user) => user,
-        None => return Err(StatusCode::NOT_FOUND),
-    };
-
-    let is_valid = verify(&payload.password, &user.password).map_err(|err| {
-        eprintln!("Bcrypt verify error: {}", err);
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    let is_valid = tokio::task::spawn_blocking({
+        let hash = user.password.clone();
+        let pw = payload.password.clone();
+        move || verify(&pw, &hash)
+    })
+    .await??;
 
     if !is_valid {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(Error::Unauthorized);
     }
 
     let secret = state.settings.jwt_secret;
-    let token = create_jwt_token(user.id, &user.username, &secret)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let token = create_jwt_token(user.id, &user.username, &secret)?;
 
     jar.add(
         CookieBuilder::new("session", token)
@@ -58,10 +52,10 @@ pub async fn login(
     Ok(StatusCode::OK)
 }
 
-fn create_jwt_token(user_id: i32, username: &str, secret: &str) -> Result<String, JwtError> {
+fn create_jwt_token(user_id: i32, username: &str, secret: &str) -> Result<String, Error> {
     let expiration = Utc::now()
         .checked_add_signed(Duration::hours(24))
-        .expect("valid timestamp")
+        .ok_or(Error::TimestampOverflow)?
         .timestamp() as usize;
 
     let claims = Claims {

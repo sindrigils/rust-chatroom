@@ -13,7 +13,7 @@ use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
     PaginatorTrait, QueryFilter,
 };
-use tokio::sync::broadcast;
+use tokio::sync::broadcast::{Sender, channel};
 
 use crate::{
     AppState,
@@ -46,7 +46,7 @@ pub async fn chat_ws(
         .insert(&db)
         .await;
 
-        update_user_count(&db, hub.clone(), chat_id).await;
+        update_user_count(&db, &state.chat_list_tx, chat_id).await;
         handle_socket(socket, &db, hub.clone(), chat_id, claims.username.clone()).await;
 
         let _ = online_user::Entity::delete_many()
@@ -55,7 +55,7 @@ pub async fn chat_ws(
             .exec(&db)
             .await;
 
-        update_user_count(&db, hub.clone(), chat_id).await;
+        update_user_count(&db, &state.chat_list_tx, chat_id).await;
         broadcast_user_list(&db, &hub, chat_id).await;
     })
 }
@@ -70,7 +70,7 @@ async fn handle_socket(
     let mut rx = {
         let mut map = hub.lock().await;
         map.entry(chat_id)
-            .or_insert_with(|| broadcast::channel(100).0)
+            .or_insert_with(|| channel(100).0)
             .subscribe()
     };
 
@@ -126,7 +126,7 @@ async fn broadcast_user_list(db: &DatabaseConnection, hub: &ChatHub, chat_id: i3
     }
 }
 
-async fn update_user_count(db: &DatabaseConnection, hub: ChatHub, chat_id: i32) {
+async fn update_user_count(db: &DatabaseConnection, chat_list_tx: &Sender<String>, chat_id: i32) {
     let count = online_user::Entity::find()
         .filter(online_user::Column::ChatId.eq(chat_id))
         .count(db)
@@ -140,8 +140,5 @@ async fn update_user_count(db: &DatabaseConnection, hub: ChatHub, chat_id: i32) 
     })
     .to_string();
 
-    let mut map = hub.lock().await;
-    let global_tx = map.entry(0).or_insert_with(|| broadcast::channel(100).0);
-
-    let _ = global_tx.send(payload);
+    let _ = chat_list_tx.send(payload);
 }

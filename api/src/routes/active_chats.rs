@@ -1,17 +1,18 @@
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{Json, extract::State};
 use sea_orm::{EntityTrait, QuerySelect, sea_query::Expr};
 use tower_cookies::Cookies;
 
 use crate::{
     AppState,
     entity::{chat, online_user},
+    errors::Error,
     models::chat::Chat,
 };
 
 pub async fn active_chats(
     _: Cookies,
     State(state): State<AppState>,
-) -> Result<Json<Vec<Chat>>, StatusCode> {
+) -> Result<Json<Vec<Chat>>, Error> {
     let rows = chat::Entity::find()
         .left_join(online_user::Entity)
         .select_only()
@@ -24,11 +25,7 @@ pub async fn active_chats(
         .group_by(chat::Column::Id)
         .into_model::<Chat>()
         .all(&state.db)
-        .await
-        .map_err(|e| {
-            eprintln!("DB error loading chats: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+        .await?;
 
     Ok(Json(rows))
 }

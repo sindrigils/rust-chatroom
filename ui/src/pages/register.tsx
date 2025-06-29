@@ -15,13 +15,13 @@ import {
 } from "@components/Styled";
 
 export const Register = () => {
-  const { handleRegister } = useAuth();
+  const { register } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
 
   const onSubmit = async () => {
-    handleRegister({ username, password });
+    register({ username, password });
     navigate("/");
   };
 

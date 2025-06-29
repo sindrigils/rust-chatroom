@@ -15,7 +15,7 @@ import {
 } from "@components/Styled";
 
 export const Login = () => {
-  const { handleLogin } = useAuth();
+  const { login } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
@@ -25,7 +25,7 @@ export const Login = () => {
     const user = username.trim();
     const pass = password.trim();
     if (!user || !pass) return;
-    handleLogin({ username: user, password: pass });
+    login({ username: user, password: pass });
     navigate(from, { replace: true });
   };
 

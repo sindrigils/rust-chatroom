@@ -14,7 +14,6 @@ pub async fn require_auth(
     mut req: Request<Body>,
     next: Next,
 ) -> impl IntoResponse {
-    // 1) pull the raw Cookie header
     let token_opt = req
         .headers()
         .get(header::COOKIE)
@@ -31,13 +30,11 @@ pub async fn require_auth(
                 .next()
         });
 
-    // 2) if missing, bail with a Response<Body>
     let token = match token_opt {
         Some(t) => t,
         None => return StatusCode::UNAUTHORIZED.into_response(),
     };
 
-    // 3) validate the JWT; if it fails, bail the same way
     let token_data = match decode::<Claims>(
         &token,
         &DecodingKey::from_secret(state.settings.jwt_secret.as_bytes()),
@@ -48,7 +45,5 @@ pub async fn require_auth(
     };
 
     req.extensions_mut().insert(token_data.claims.clone());
-
-    // 4) on success, forward the original request and return its Response<Body>
     next.run(req).await
 }

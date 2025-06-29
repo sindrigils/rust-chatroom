@@ -10,7 +10,7 @@ impl Settings {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(8002);
-        let jwt_secret = "".to_string();
+        let jwt_secret = std::env::var("JWT_SECRET").expect("no JWT_SECRET found in environment");
         Settings {
             http_port,
             jwt_secret,

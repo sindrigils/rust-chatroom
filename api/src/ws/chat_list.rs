@@ -22,10 +22,8 @@ pub async fn chat_list_ws(
 }
 
 async fn handle_chat_list_socket(socket: WebSocket, hub: ChatHub) {
-    // 1) Split into sink (tx) and stream (rx_ws), both mutable
     let (mut tx, mut rx_ws) = socket.split();
 
-    // 2) Subscribe to the “global” broadcast channel
     let mut rx = {
         let mut map = hub.lock().await;
         map.entry(0)
@@ -33,17 +31,13 @@ async fn handle_chat_list_socket(socket: WebSocket, hub: ChatHub) {
             .subscribe()
     };
 
-    // 3) Spawn a task that forwards broadcasts to the WS sink
     tokio::spawn(async move {
         while let Ok(raw) = rx.recv().await {
-            // raw is String, so convert into Utf8Bytes via `.into()`
             if tx.send(Message::Text(raw.into())).await.is_err() {
-                break; // client disconnected
+                break;
             }
         }
     });
 
-    while let Some(Ok(_frame)) = rx_ws.next().await {
-        // you can ignore incoming frames here (ping/pong, etc.)
-    }
+    while let Some(Ok(_frame)) = rx_ws.next().await {}
 }

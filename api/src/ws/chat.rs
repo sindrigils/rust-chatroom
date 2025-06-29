@@ -79,7 +79,7 @@ async fn handle_socket(
     tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
             if tx.send(Message::Text(msg.into())).await.is_err() {
-                break; // client disconnected
+                break;
             }
         }
     });
@@ -109,7 +109,6 @@ async fn broadcast_user_list(db: &DatabaseConnection, hub: &ChatHub, chat_id: i3
         .await
         .unwrap_or_default();
 
-    // Extract only the joined UserModels’ usernames
     let names: Vec<String> = rows
         .into_iter()
         .filter_map(|(_online, maybe_user)| maybe_user)

@@ -42,7 +42,8 @@ pub async fn login(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let token = create_jwt_token(user.id, &user.username, "")
+    let secret = state.settings.jwt_secret;
+    let token = create_jwt_token(user.id, &user.username, &secret)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     jar.add(

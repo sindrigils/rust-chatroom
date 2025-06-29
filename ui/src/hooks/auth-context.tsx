@@ -1,5 +1,10 @@
-/* eslint-disable react-refresh/only-export-components */
-import React, { createContext, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   useLoginUser,
   useCurrentUserQuery,
@@ -9,41 +14,39 @@ import type { LoginPayload, User } from "@api/users/request";
 
 type AuthContextType = {
   user: User | null;
-  handleLogin: (data: LoginPayload) => Promise<void>;
-  handleRegister: (data: LoginPayload) => void;
   isAuthenticated: boolean;
+  isLoading: boolean;
+  login: (data: LoginPayload) => Promise<void>;
+  register: (data: LoginPayload) => Promise<void>;
 };
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType>(undefined!);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
-  children,
-}) => {
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-
-  const { refetch: fetchUser } = useCurrentUserQuery();
-
-  const login = useLoginUser();
-  const register = useRegisterUser();
+  const [isLoading, setLoading] = useState(true);
+  const { refetch } = useCurrentUserQuery();
+  const loginMutation = useLoginUser();
+  const registerMutation = useRegisterUser();
 
   useEffect(() => {
-    fetchUser().then(({ data }) => {
-      setUser(data ?? null);
-    });
-  }, [fetchUser]);
+    refetch()
+      .then(({ data }) => setUser(data ?? null))
+      .finally(() => setLoading(false));
+  }, [refetch]);
 
-  const handleLogin = async (data: LoginPayload, onSuccess?: () => void) => {
-    await login.mutateAsync(data, {
+  const login = async (data: LoginPayload, onSuccess?: () => void) => {
+    await loginMutation.mutateAsync(data, {
       onSuccess: async () => {
-        const { data: me } = await fetchUser();
-        setUser(me ?? null);
+        const { data } = await refetch();
+        setUser(data ?? null);
         onSuccess?.();
       },
     });
   };
 
-  const handleRegister = async (data: LoginPayload, onSuccess?: () => void) => {
-    await register.mutateAsync(data, {
+  const register = async (data: LoginPayload, onSuccess?: () => void) => {
+    await registerMutation.mutateAsync(data, {
       onSuccess: () => {
         onSuccess?.();
       },
@@ -54,9 +57,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     <AuthContext.Provider
       value={{
         user,
-        handleLogin,
-        handleRegister,
-        isAuthenticated: Boolean(user),
+        isAuthenticated: !!user,
+        isLoading,
+        login,
+        register,
       }}
     >
       {children}
@@ -64,6 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be within AuthProvider");

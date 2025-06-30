@@ -22,6 +22,8 @@ dotenv = "0.15"
 derive_more = "0.99"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
+redis = { version = "0.23", features = ["aio", "tokio-comp", "connection-manager"] }
+
 
 
 [dev-dependencies]

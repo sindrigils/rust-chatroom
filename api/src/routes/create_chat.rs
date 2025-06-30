@@ -3,6 +3,7 @@ use crate::errors::Error;
 use crate::{entity::chat, models::create_chat::*};
 use axum::extract::State;
 use axum::{extract::Json, http::StatusCode};
+use redis::AsyncCommands;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set};
 use tower_cookies::Cookies;
 
@@ -25,7 +26,8 @@ pub async fn create_chat(
     })
     .to_string();
 
-    let _ = state.chat_list_tx.send(payload);
+    let mut redis = state.redis;
+    redis.publish("chat_list", payload).await.unwrap_or(());
 
     Ok((StatusCode::CREATED, Json(inserted)))
 }

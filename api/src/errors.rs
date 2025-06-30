@@ -13,12 +13,18 @@ use tracing::error;
 pub enum Error {
     #[from]
     Db(sea_orm::DbErr),
+
     #[from]
     Bcrypt(bcrypt::BcryptError),
+
     #[from]
     Jwt(jsonwebtoken::errors::Error),
+
     #[from]
     Join(JoinError),
+
+    #[from]
+    Redis(redis::RedisError),
 
     NotFound,
     Unauthorized,
@@ -41,6 +47,10 @@ impl IntoResponse for Error {
             // 2) Infrastructure errors—log their inner payloads:
             Error::Db(e) => {
                 error!("database error: {:?}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+            }
+            Error::Redis(e) => {
+                error!("redis error: {:?}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
             }
             Error::Bcrypt(e) => {

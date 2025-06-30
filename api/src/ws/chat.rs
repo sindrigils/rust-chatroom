@@ -9,17 +9,15 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
+use redis::AsyncCommands;
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection, EntityTrait,
-    PaginatorTrait, QueryFilter,
+    ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
 };
-use tokio::sync::broadcast::{Sender, channel};
 
 use crate::{
     AppState,
     entity::{online_user, user},
     models::claims::Claims,
-    ws::ChatHub,
 };
 
 pub async fn chat_ws(
@@ -33,9 +31,8 @@ pub async fn chat_ws(
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
     let user_id: i32 = claims.sub as i32;
-
+    let username = claims.username.clone();
     let db = state.db.clone();
-    let hub = state.hub.clone();
 
     ws.on_upgrade(move |socket| async move {
         let _ = online_user::ActiveModel {
@@ -46,46 +43,55 @@ pub async fn chat_ws(
         .insert(&db)
         .await;
 
-        update_user_count(&db, &state.chat_list_tx, chat_id).await;
-        handle_socket(socket, &db, hub.clone(), chat_id, claims.username.clone()).await;
+        handle_socket(socket, state.clone(), chat_id, username).await;
 
         let _ = online_user::Entity::delete_many()
             .filter(online_user::Column::UserId.eq(user_id))
             .filter(online_user::Column::ChatId.eq(chat_id))
             .exec(&db)
             .await;
-
-        update_user_count(&db, &state.chat_list_tx, chat_id).await;
-        broadcast_user_list(&db, &hub, chat_id).await;
+        update_user_count(&state, chat_id).await;
+        broadcast_user_list(&state, chat_id).await;
     })
 }
 
-async fn handle_socket(
-    socket: WebSocket,
-    db: &DatabaseConnection,
-    hub: ChatHub,
-    chat_id: i32,
-    username: String,
-) {
-    let mut rx = {
-        let mut map = hub.lock().await;
-        map.entry(chat_id)
-            .or_insert_with(|| channel(100).0)
-            .subscribe()
-    };
-
+async fn handle_socket(socket: WebSocket, state: AppState, chat_id: i32, username: String) {
     let (mut tx, mut rx_ws) = socket.split();
+    let redis_client = state.redis_client.clone();
+    let channel = format!("chat:{}", chat_id);
 
     tokio::spawn(async move {
-        while let Ok(msg) = rx.recv().await {
-            if tx.send(Message::Text(msg.into())).await.is_err() {
-                break;
+        let conn = match redis_client.get_async_connection().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("pubsub connect failed: {:?}", e);
+                return;
+            }
+        };
+        let mut pubsub = conn.into_pubsub();
+        if let Err(e) = pubsub.subscribe(&channel).await {
+            tracing::error!("subscribe({}) failed: {:?}", channel, e);
+            return;
+        }
+
+        let mut inbound = pubsub.on_message();
+
+        while let Some(msg) = inbound.next().await {
+            if let Ok(text) = msg.get_payload::<String>() {
+                if tx.send(Message::Text(text.into())).await.is_err() {
+                    break;
+                }
+            } else {
+                tracing::error!("invalid payload on {}", channel);
             }
         }
     });
 
-    broadcast_user_list(&db, &hub, chat_id).await;
+    update_user_count(&state, chat_id).await;
+    broadcast_user_list(&state, chat_id).await;
 
+    let mut publisher = state.redis.clone();
+    let key = format!("chat:{}", chat_id);
     while let Some(Ok(frame)) = rx_ws.next().await {
         if let Message::Text(text) = frame {
             let payload = serde_json::json!({
@@ -93,19 +99,34 @@ async fn handle_socket(
                 "content": format!("{}: {}", username, text),
             })
             .to_string();
-
-            if let Some(sender) = hub.lock().await.get(&chat_id) {
-                let _ = sender.send(payload);
-            }
+            let _: u64 = publisher.publish(&key, payload).await.unwrap_or(0);
         }
     }
 }
 
-async fn broadcast_user_list(db: &DatabaseConnection, hub: &ChatHub, chat_id: i32) {
+async fn update_user_count(state: &AppState, chat_id: i32) {
+    let count = online_user::Entity::find()
+        .filter(online_user::Column::ChatId.eq(chat_id))
+        .count(&state.db)
+        .await
+        .unwrap_or(0);
+
+    let payload = serde_json::json!({
+        "type": "user_count",
+        "chatId": chat_id,
+        "content": count,
+    })
+    .to_string();
+
+    let mut redis = state.redis.clone();
+    let _ = redis.publish("chat_list", payload).await.unwrap_or(());
+}
+
+async fn broadcast_user_list(state: &AppState, chat_id: i32) {
     let rows = online_user::Entity::find()
         .filter(online_user::Column::ChatId.eq(chat_id))
         .find_also_related(user::Entity)
-        .all(db)
+        .all(&state.db)
         .await
         .unwrap_or_default();
 
@@ -121,24 +142,9 @@ async fn broadcast_user_list(db: &DatabaseConnection, hub: &ChatHub, chat_id: i3
     })
     .to_string();
 
-    if let Some(broadcaster) = hub.lock().await.get(&chat_id) {
-        let _ = broadcaster.send(payload);
-    }
-}
-
-async fn update_user_count(db: &DatabaseConnection, chat_list_tx: &Sender<String>, chat_id: i32) {
-    let count = online_user::Entity::find()
-        .filter(online_user::Column::ChatId.eq(chat_id))
-        .count(db)
+    let mut redis = state.redis.clone();
+    let _ = redis
+        .publish(format!("chat:{}", chat_id), payload)
         .await
-        .unwrap_or(0);
-
-    let payload = serde_json::json!({
-        "type": "user_count",
-        "chatId": chat_id,
-        "content": count,
-    })
-    .to_string();
-
-    let _ = chat_list_tx.send(payload);
+        .unwrap_or(());
 }

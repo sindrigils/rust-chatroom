@@ -6,7 +6,7 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
-use tokio::sync::broadcast::Sender;
+use redis::Client as RedisClient;
 
 use crate::AppState;
 
@@ -14,21 +14,42 @@ pub async fn chat_list_ws(
     State(state): State<AppState>,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
-    let channel = state.chat_list_tx;
-
     ws.on_upgrade(move |socket| async move {
-        handle_chat_list_socket(socket, channel).await;
+        handle_chat_list_socket(socket, state.redis_client).await;
     })
 }
 
-async fn handle_chat_list_socket(socket: WebSocket, channel: Sender<String>) {
+async fn handle_chat_list_socket(socket: WebSocket, redis_client: RedisClient) {
     let (mut tx, mut rx_ws) = socket.split();
-    let mut rx = channel.subscribe();
+    let channel = "chat_list".to_string();
 
     tokio::spawn(async move {
-        while let Ok(raw) = rx.recv().await {
-            if tx.send(Message::Text(raw.into())).await.is_err() {
-                break;
+        let conn = match redis_client.get_async_connection().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("pubsub connect failed: {:?}", e);
+                return;
+            }
+        };
+
+        let mut pubsub = conn.into_pubsub();
+        if let Err(e) = pubsub.subscribe(&channel).await {
+            tracing::error!("subscribe({}) failed: {:?}", channel, e);
+            return;
+        }
+
+        let mut inbound = pubsub.on_message();
+
+        while let Some(msg) = inbound.next().await {
+            match msg.get_payload::<String>() {
+                Ok(text) => {
+                    if tx.send(Message::Text(text.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("invalid payload on {}: {:?}", channel, e);
+                }
             }
         }
     });

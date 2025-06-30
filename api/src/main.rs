@@ -1,7 +1,7 @@
 use crate::{
     middleware::require_auth,
     routes::{protected_router, public_router},
-    ws::{ChatHub, chat_list_ws, chat_ws, init_hub},
+    ws::{chat_list_ws, chat_ws},
 };
 use tracing_subscriber;
 
@@ -14,9 +14,10 @@ use axum::{
 };
 use dotenv::dotenv;
 
+use redis::{Client as RedisClient, aio::ConnectionManager};
 use sea_orm::{Database, DatabaseConnection};
 use std::{net::SocketAddr, time::Duration};
-use tokio::{net::TcpListener, sync::broadcast};
+use tokio::net::TcpListener;
 use tower_cookies::CookieManagerLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
@@ -32,8 +33,8 @@ mod ws;
 pub struct AppState {
     pub db: DatabaseConnection,
     pub settings: config::Settings,
-    pub hub: ChatHub,
-    pub chat_list_tx: broadcast::Sender<String>,
+    pub redis_client: RedisClient,
+    pub redis: ConnectionManager,
 }
 
 #[tokio::main]
@@ -46,13 +47,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
     let settings = config::Settings::new();
-    let hub = init_hub();
-    let (chat_list_tx, _) = broadcast::channel(100);
+
+    let redis_client = RedisClient::open(std::env::var("REDIS_URL")?)?;
+    let redis_mgr = ConnectionManager::new(redis_client.clone()).await?;
+
     let state = AppState {
         db,
         settings,
-        hub,
-        chat_list_tx,
+        redis_client,
+        redis: redis_mgr,
     };
 
     let public = public_router();

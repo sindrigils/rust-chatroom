@@ -7,6 +7,7 @@ import { ChatRoom } from "@pages/chat-room";
 import { Register } from "@pages/register";
 import { Login } from "@pages/login";
 import { Spinner } from "@components/spinner";
+import { GlobalStyles } from "@styles/global-styles";
 
 function AppRoutes() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -35,6 +36,7 @@ function AppRoutes() {
 export const App = () => (
   <QueryClientProvider>
     <AuthProvider>
+      <GlobalStyles />
       <BrowserRouter>
         <AppRoutes />
       </BrowserRouter>

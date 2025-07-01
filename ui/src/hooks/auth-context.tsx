@@ -13,7 +13,7 @@ import {
 import type { LoginPayload, User } from "@api/users/request";
 
 type AuthContextType = {
-  user: User | null;
+  user: User;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (data: LoginPayload) => Promise<void>;

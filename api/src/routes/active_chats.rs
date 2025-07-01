@@ -1,6 +1,5 @@
 use axum::{Json, extract::State};
 use sea_orm::{EntityTrait, QuerySelect, sea_query::Expr};
-use tower_cookies::Cookies;
 
 use crate::{
     AppState,
@@ -9,10 +8,7 @@ use crate::{
     models::chat::Chat,
 };
 
-pub async fn active_chats(
-    _: Cookies,
-    State(state): State<AppState>,
-) -> Result<Json<Vec<Chat>>, Error> {
+pub async fn active_chats(State(state): State<AppState>) -> Result<Json<Vec<Chat>>, Error> {
     let rows = chat::Entity::find()
         .left_join(online_user::Entity)
         .select_only()

@@ -9,10 +9,8 @@ use axum::{
     http::StatusCode,
 };
 use sea_orm::{ActiveModelTrait, Set};
-use tower_cookies::Cookies;
 
 pub async fn register(
-    _: Cookies,
     State(state): State<AppState>,
     Json(payload): Json<CreateUserRequest>,
 ) -> Result<StatusCode, Error> {

@@ -5,10 +5,8 @@ use axum::extract::State;
 use axum::{extract::Json, http::StatusCode};
 use redis::AsyncCommands;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set};
-use tower_cookies::Cookies;
 
 pub async fn create_chat(
-    _: Cookies,
     State(state): State<AppState>,
     Json(payload): Json<CreateChatRequest>,
 ) -> Result<(StatusCode, Json<chat::Model>), Error> {

@@ -6,8 +6,10 @@ import { useAuth } from "@hooks/auth-context";
 import { theme } from "@styles/theme";
 
 type WSData = {
-  type: "message" | "user_list";
+  type: "message" | "user_list" | "system_message";
+  subtype?: "join" | "leave";
   content: string | string[];
+  username?: string;
 };
 
 export const ChatRoom = () => {
@@ -15,7 +17,7 @@ export const ChatRoom = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [messages, setMessages] = useState<string[]>([]);
+  const [messages, setMessages] = useState<WSData[]>([]);
   const [activeUsers, setActiveUsers] = useState<string[]>([]);
   const [input, setInput] = useState("");
   const [isConnected, setIsConnected] = useState(false);
@@ -25,12 +27,10 @@ export const ChatRoom = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Focus input on mount
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -39,17 +39,14 @@ export const ChatRoom = () => {
     const ws = new WebSocket(`/ws/chat?chat_id=${roomId}`);
 
     ws.onopen = () => {
-      console.log("🟢 WS open", ws.url);
       setIsConnected(true);
     };
 
     ws.onclose = () => {
-      console.log("🔴 WS closed");
       setIsConnected(false);
     };
 
     ws.onerror = () => {
-      console.log("❌ WS error");
       setIsConnected(false);
     };
 
@@ -58,15 +55,17 @@ export const ChatRoom = () => {
       let data: WSData;
       try {
         data = JSON.parse(raw);
-        console.log("just got data: ", data);
       } catch {
-        console.warn("Received non-JSON frame:", raw);
         return;
       }
 
       switch (data.type) {
         case "message":
-          setMessages((prev) => [...prev, data.content as string]);
+          setMessages((prev) => [...prev, data]);
+          break;
+
+        case "system_message":
+          setMessages((prev) => [...prev, data]);
           break;
 
         case "user_list":
@@ -103,16 +102,27 @@ export const ChatRoom = () => {
     }
   };
 
-  const parseMessage = (msg: string) => {
-    const colonIndex = msg.indexOf(":");
+  const parseMessage = (msg: WSData) => {
+    if (msg.type === "system_message") {
+      return {
+        username: "System",
+        content: msg.content as string,
+        isOwn: false,
+        isSystem: true,
+        systemType: msg.subtype || "info",
+      };
+    }
+
+    const content = msg.content as string;
+    const colonIndex = content.indexOf(":");
     if (colonIndex === -1)
-      return { username: "System", content: msg, isOwn: false };
+      return { username: "System", content, isOwn: false, isSystem: false };
 
-    const username = msg.substring(0, colonIndex);
-    const content = msg.substring(colonIndex + 1).trim();
-    const isOwn = username === user.id.toString();
+    const username = content.substring(0, colonIndex);
+    const messageContent = content.substring(colonIndex + 1).trim();
+    const isOwn = username === user.username;
 
-    return { username, content, isOwn };
+    return { username, content: messageContent, isOwn, isSystem: false };
   };
 
   const formatTime = () => {
@@ -125,7 +135,6 @@ export const ChatRoom = () => {
   return (
     <Page>
       <ChatContainer>
-        {/* Header */}
         <ChatHeader>
           <HeaderLeft>
             <BackButton onClick={() => navigate("/join")}>←</BackButton>
@@ -148,9 +157,7 @@ export const ChatRoom = () => {
           </HeaderRight>
         </ChatHeader>
 
-        {/* Main Chat Area */}
         <ChatBody>
-          {/* Messages Area */}
           <MessagesContainer>
             <MessagesWrapper>
               {messages.length === 0 ? (
@@ -161,10 +168,24 @@ export const ChatRoom = () => {
                 </EmptyMessages>
               ) : (
                 messages.map((msg, i) => {
-                  const { username, content, isOwn } = parseMessage(msg);
+                  const { username, content, isOwn, isSystem, systemType } =
+                    parseMessage(msg);
+
+                  if (isSystem) {
+                    return (
+                      <SystemMessage key={i} $type={systemType}>
+                        <SystemIcon $type={systemType}>
+                          {systemType === "join" ? "👋" : "👋"}
+                        </SystemIcon>
+                        <SystemText>{content}</SystemText>
+                      </SystemMessage>
+                    );
+                  }
+
                   const showAvatar =
                     i === 0 ||
-                    parseMessage(messages[i - 1]).username !== username;
+                    parseMessage(messages[i - 1]).username !== username ||
+                    parseMessage(messages[i - 1]).isSystem;
 
                   return (
                     <MessageGroup key={i} $isOwn={isOwn}>
@@ -195,7 +216,6 @@ export const ChatRoom = () => {
             </MessagesWrapper>
           </MessagesContainer>
 
-          {/* User List Sidebar */}
           <UserListSidebar $isVisible={showUserList}>
             <UserListHeader>
               <UserListTitle>Online Users</UserListTitle>
@@ -205,13 +225,13 @@ export const ChatRoom = () => {
               {activeUsers.map((username) => (
                 <UserItem
                   key={username}
-                  $isCurrentUser={username === user.id.toString()}
+                  $isCurrentUser={username === user.username}
                 >
-                  <UserAvatar $isCurrentUser={username === user.id.toString()}>
+                  <UserAvatar $isCurrentUser={username === user.username}>
                     {username.charAt(0).toUpperCase()}
                   </UserAvatar>
-                  <UserName $isCurrentUser={username === user.id.toString()}>
-                    {username === user.id.toString()
+                  <UserName $isCurrentUser={username === user.username}>
+                    {username === user.username
                       ? `${username} (You)`
                       : username}
                   </UserName>
@@ -222,7 +242,6 @@ export const ChatRoom = () => {
           </UserListSidebar>
         </ChatBody>
 
-        {/* Message Input */}
         <MessageInputContainer>
           <InputWrapper>
             <MessageInput
@@ -246,14 +265,12 @@ export const ChatRoom = () => {
   );
 };
 
-// Styled Components - FIXED VERSION
 const Page = styled.div({
   height: "100vh",
   backgroundColor: theme.colors.background,
   fontFamily: theme.typography.fontFamilyPrimary,
   display: "flex",
   flexDirection: "column",
-  // ADD: Responsive padding for better spacing on smaller screens
   padding: "0",
 
   "@media (max-width: 1440px)": {
@@ -276,17 +293,16 @@ const ChatContainer = styled.div({
   borderRadius: "0",
   overflow: "hidden",
 
-  // ADD: Responsive styling for different screen sizes
   "@media (max-width: 1440px)": {
     borderRadius: theme.borderRadius.lg,
     boxShadow: theme.boxShadow.lg,
     border: `1px solid ${theme.colors.border}`,
-    height: "calc(100vh - 2rem)", // Account for padding
+    height: "calc(100vh - 2rem)",
   },
 
   "@media (max-width: 768px)": {
     borderRadius: theme.borderRadius.md,
-    height: "calc(100vh - 1rem)", // Account for smaller padding
+    height: "calc(100vh - 1rem)",
   },
 });
 
@@ -431,7 +447,7 @@ const ChatBody = styled.div({
   flex: 1,
   display: "flex",
   overflow: "hidden",
-  minHeight: 0, // Important for flex child scrolling
+  minHeight: 0,
 });
 
 const MessagesContainer = styled.div({
@@ -439,7 +455,7 @@ const MessagesContainer = styled.div({
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
-  minHeight: 0, // Important for flex child scrolling
+  minHeight: 0,
 });
 
 const MessagesWrapper = styled.div({
@@ -493,6 +509,54 @@ const EmptySubtext = styled.p({
 
   "@media (max-width: 768px)": {
     fontSize: theme.typography.fontSize.sm,
+  },
+});
+
+const SystemMessage = styled.div<{ $type?: string }>(({ $type }) => ({
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: theme.spacing[2],
+  margin: `${theme.spacing[2]} 0`,
+  padding: `${theme.spacing[2]} ${theme.spacing[4]}`,
+  borderRadius: theme.borderRadius.md,
+  backgroundColor:
+    $type === "join"
+      ? `${theme.colors.success}15`
+      : $type === "leave"
+      ? `${theme.colors.error}15`
+      : `${theme.colors.textMuted}15`,
+  border: `1px solid ${
+    $type === "join"
+      ? `${theme.colors.success}30`
+      : $type === "leave"
+      ? `${theme.colors.error}30`
+      : `${theme.colors.textMuted}30`
+  }`,
+
+  "@media (max-width: 768px)": {
+    padding: `${theme.spacing[1]} ${theme.spacing[3]}`,
+    margin: `${theme.spacing[1]} 0`,
+  },
+}));
+
+const SystemIcon = styled.span<{ $type?: string }>(({ $type }) => ({
+  fontSize: theme.typography.fontSize.base,
+  filter: $type === "leave" ? "grayscale(1)" : "none",
+
+  "@media (max-width: 768px)": {
+    fontSize: theme.typography.fontSize.sm,
+  },
+}));
+
+const SystemText = styled.span({
+  fontSize: theme.typography.fontSize.sm,
+  color: theme.colors.textSecondary,
+  fontWeight: theme.typography.fontWeight.medium,
+  fontStyle: "italic",
+
+  "@media (max-width: 768px)": {
+    fontSize: theme.typography.fontSize.xs,
   },
 });
 
@@ -566,7 +630,7 @@ const Timestamp = styled.span({
   color: theme.colors.textMuted,
 
   "@media (max-width: 768px)": {
-    display: "none", // Hide timestamps on mobile to save space
+    display: "none",
   },
 });
 
@@ -613,12 +677,11 @@ const MessageBubble = styled.div<{ $isOwn: boolean }>(({ $isOwn }) => ({
   },
 }));
 
-// FIXED: Only show border when visible
 const UserListSidebar = styled.aside<{ $isVisible: boolean }>(
   ({ $isVisible }) => ({
     width: $isVisible ? "280px" : "0",
     backgroundColor: theme.colors.surfaceElevated,
-    borderLeft: $isVisible ? `1px solid ${theme.colors.border}` : "none", // FIXED: Only show border when visible
+    borderLeft: $isVisible ? `1px solid ${theme.colors.border}` : "none",
     display: "flex",
     flexDirection: "column",
     overflow: "hidden",

@@ -43,13 +43,15 @@ pub async fn chat_ws(
         .insert(&db)
         .await;
 
-        handle_socket(socket, state.clone(), chat_id, username).await;
+        handle_socket(socket, state.clone(), chat_id, username.clone()).await;
 
         let _ = online_user::Entity::delete_many()
             .filter(online_user::Column::UserId.eq(user_id))
             .filter(online_user::Column::ChatId.eq(chat_id))
             .exec(&db)
             .await;
+
+        send_leave_notification(&state, chat_id, &username).await;
         update_user_count(&state, chat_id).await;
         broadcast_user_list(&state, chat_id).await;
     })
@@ -87,6 +89,7 @@ async fn handle_socket(socket: WebSocket, state: AppState, chat_id: i32, usernam
         }
     });
 
+    send_join_notification(&state, chat_id, &username).await;
     update_user_count(&state, chat_id).await;
     broadcast_user_list(&state, chat_id).await;
 
@@ -102,6 +105,34 @@ async fn handle_socket(socket: WebSocket, state: AppState, chat_id: i32, usernam
             let _: u64 = publisher.publish(&key, payload).await.unwrap_or(0);
         }
     }
+}
+
+async fn send_join_notification(state: &AppState, chat_id: i32, username: &str) {
+    let payload = serde_json::json!({
+        "type": "system_message",
+        "subtype": "join",
+        "content": format!("{} joined the chat", username),
+        "username": username
+    })
+    .to_string();
+
+    let mut redis = state.redis.clone();
+    let key = format!("chat:{}", chat_id);
+    let _: u64 = redis.publish(&key, payload).await.unwrap_or(0);
+}
+
+async fn send_leave_notification(state: &AppState, chat_id: i32, username: &str) {
+    let payload = serde_json::json!({
+        "type": "system_message",
+        "subtype": "leave",
+        "content": format!("{} left the chat", username),
+        "username": username
+    })
+    .to_string();
+
+    let mut redis = state.redis.clone();
+    let key = format!("chat:{}", chat_id);
+    let _: u64 = redis.publish(&key, payload).await.unwrap_or(0);
 }
 
 async fn update_user_count(state: &AppState, chat_id: i32) {

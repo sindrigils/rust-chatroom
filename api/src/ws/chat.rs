@@ -16,7 +16,7 @@ use sea_orm::{
 
 use crate::{
     AppState,
-    entity::{online_user, user},
+    entity::{message, online_user, user},
     models::claims::Claims,
 };
 
@@ -43,7 +43,7 @@ pub async fn chat_ws(
         .insert(&db)
         .await;
 
-        handle_socket(socket, state.clone(), chat_id, username.clone()).await;
+        handle_socket(socket, state.clone(), chat_id, username.clone(), user_id).await;
 
         let _ = online_user::Entity::delete_many()
             .filter(online_user::Column::UserId.eq(user_id))
@@ -57,7 +57,13 @@ pub async fn chat_ws(
     })
 }
 
-async fn handle_socket(socket: WebSocket, state: AppState, chat_id: i32, username: String) {
+async fn handle_socket(
+    socket: WebSocket,
+    state: AppState,
+    chat_id: i32,
+    username: String,
+    user_id: i32,
+) {
     let (mut tx, mut rx_ws) = socket.split();
     let redis_client = state.redis_client.clone();
     let channel = format!("chat:{}", chat_id);
@@ -97,6 +103,14 @@ async fn handle_socket(socket: WebSocket, state: AppState, chat_id: i32, usernam
     let key = format!("chat:{}", chat_id);
     while let Some(Ok(frame)) = rx_ws.next().await {
         if let Message::Text(text) = frame {
+            let message = message::ActiveModel {
+                chat_id: Set(chat_id),
+                sender_id: Set(user_id),
+                content: Set(text.to_string()),
+                ..Default::default()
+            };
+            let _ = message.insert(&state.db).await;
+
             let payload = serde_json::json!({
                 "type": "message",
                 "content": format!("{}: {}", username, text),

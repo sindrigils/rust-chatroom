@@ -1,19 +1,20 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{Request, StatusCode, header},
+    http::{Request, header},
     middleware::Next,
-    response::IntoResponse,
+    response::Response,
 };
 use jsonwebtoken::{DecodingKey, Validation, decode};
+use sea_orm::EntityTrait;
 
-use crate::{AppState, models::claims::Claims};
+use crate::{AppState, entity::user, errors::Error, models::claims::Claims};
 
 pub async fn require_auth(
     State(state): State<AppState>,
     mut req: Request<Body>,
     next: Next,
-) -> impl IntoResponse {
+) -> Result<Response<Body>, Error> {
     let token_opt = req
         .headers()
         .get(header::COOKIE)
@@ -32,7 +33,7 @@ pub async fn require_auth(
 
     let token = match token_opt {
         Some(t) => t,
-        None => return StatusCode::UNAUTHORIZED.into_response(),
+        None => return Err(Error::Unauthorized),
     };
 
     let token_data = match decode::<Claims>(
@@ -41,9 +42,21 @@ pub async fn require_auth(
         &Validation::default(),
     ) {
         Ok(data) => data,
-        Err(_) => return StatusCode::UNAUTHORIZED.into_response(),
+        Err(_) => return Err(Error::Unauthorized),
     };
 
+    let user_id = token_data.claims.sub as i32;
+
+    if user::Entity::find_by_id(user_id)
+        .one(&state.db)
+        .await
+        .map_err(|_| Error::InternalServerError)?
+        .is_none()
+    {
+        return Err(Error::Unauthorized);
+    }
+
     req.extensions_mut().insert(token_data.claims.clone());
-    next.run(req).await
+    let res = next.run(req).await;
+    Ok(res)
 }

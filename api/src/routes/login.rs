@@ -43,8 +43,8 @@ pub async fn login(
     jar.add(
         CookieBuilder::new("session", token)
             .http_only(true)
-            .secure(true)
-            .same_site(SameSite::Strict)
+            .secure(false)
+            .same_site(SameSite::Lax)
             .path("/")
             .build(),
     );

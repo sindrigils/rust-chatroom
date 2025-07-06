@@ -3,8 +3,6 @@ use crate::{
     routes::{protected_router, public_router},
     ws::{chat_list_ws, chat_ws},
 };
-use tracing_subscriber;
-
 use axum::{
     Router,
     http::{Method, header},
@@ -13,9 +11,13 @@ use axum::{
     serve,
 };
 use dotenv::dotenv;
+use migration::{Migrator, MigratorTrait};
+use sea_orm_migration::prelude::*;
+use tracing_subscriber;
 
 use redis::{Client as RedisClient, aio::ConnectionManager};
 use sea_orm::{Database, DatabaseConnection};
+use std::io::Write;
 use std::{net::SocketAddr, time::Duration};
 use tokio::net::TcpListener;
 use tower_cookies::CookieManagerLayer;
@@ -39,14 +41,32 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenv().ok();
-    tracing_subscriber::fmt::init();
+    eprintln!("=== BACKEND STARTING ===");
+    println!("=== BACKEND STARTING ===");
 
-    let db = Database::connect(
-        std::env::var("DATABASE_URL").expect("no DATABASE_URL found in environment"),
-    )
-    .await?;
+    std::io::stdout().flush().unwrap();
+    std::io::stderr().flush().unwrap();
+
+    dotenv().ok();
+    eprintln!("=== DOTENV LOADED ===");
+
+    tracing_subscriber::fmt::init();
+    eprintln!("=== TRACING INITIALIZED ===");
+
+    eprintln!("=== CONNECTING TO DATABASE ===");
+    let database_url = std::env::var("DATABASE_URL").expect("no DATABASE_URL found in environment");
+    eprintln!("=== DATABASE_URL: {} ===", database_url);
+
+    let db = Database::connect(database_url).await?;
+    eprintln!("=== DATABASE CONNECTED ===");
+
+    eprintln!("=== RUNNING MIGRATIONS ===");
+    Migrator::up(&db, None).await?;
+    eprintln!("=== MIGRATIONS COMPLETED ===");
+
+    eprintln!("=== LOADING SETTINGS ===");
     let settings = config::Settings::new();
+    eprintln!("=== SETTINGS LOADED ===");
 
     let redis_client = RedisClient::open(std::env::var("REDIS_URL")?)?;
     let redis_mgr = ConnectionManager::new(redis_client.clone()).await?;

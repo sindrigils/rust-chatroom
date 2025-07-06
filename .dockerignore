@@ -1,0 +1,6 @@
+target
+api/target
+load-balancer/target
+.git
+ui/node_modules
+node_modules

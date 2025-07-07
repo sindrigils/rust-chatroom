@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use tokio::{sync::RwLock, time::Instant};
 
-use crate::{config::ServerConfig, hash_ring::HashRing};
+use crate::{config::ServerConfig, routing::HashRing};
 
 #[derive(Clone)]
 pub struct ServerPool {
@@ -56,22 +56,24 @@ impl ServerPool {
 
     pub async fn get_server_by_id(&self, id: &str) -> Option<BackendServer> {
         let servers = self.servers.read().await;
-        servers.iter().find(|s| s.id == id).cloned()
+        servers.iter().find(|s| s.id == id && s.is_healthy).cloned()
     }
 
     pub async fn get_least_loaded_server(&self) -> Option<BackendServer> {
         let servers = self.servers.read().await;
-        servers.iter().min_by_key(|s| s.active_connections).cloned()
+        servers
+            .iter()
+            .filter(|s| s.is_healthy)
+            .min_by_key(|s| s.active_connections)
+            .cloned()
     }
 
     pub async fn update_server_health(&self, server_id: &str, is_healthy: bool) {
-        // Update backend servers list
         let mut servers = self.servers.write().await;
         if let Some(server) = servers.iter_mut().find(|s| s.id == server_id) {
             server.is_healthy = is_healthy;
         }
 
-        // Update hash ring
         self.hash_ring
             .update_server_health(server_id, is_healthy)
             .await;

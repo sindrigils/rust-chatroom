@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-"""
-Advanced Load Balancer Tester
-Simulates multiple users with different session patterns
-"""
-
 import asyncio
 import aiohttp
 import time
@@ -174,11 +168,7 @@ class LoadBalancerTester:
 
 
 async def main():
-    # You can adjust these parameters
-    tester = LoadBalancerTester(
-        base_url="http://localhost:8080", num_users=15  # Increase this for more load
-    )
-
+    tester = LoadBalancerTester(base_url="http://localhost:8080", num_users=50)
     await tester.run_test()
 
 

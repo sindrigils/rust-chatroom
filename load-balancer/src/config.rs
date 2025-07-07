@@ -27,17 +27,18 @@ pub struct LoadBalancerConfig {
     pub health_check_timeout: Duration,
     pub sticky_cookie_name: String,
     pub sticky_cookie_max_age: u64,
+    pub lb_secret: String,
 }
 
 impl LoadBalancerConfig {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         let lb_port = std::env::var("LB_PORT")
-            .map_err(|e| format!("Failed to read LB_PORT: {}", e))?
+            .unwrap_or_else(|_| "8080".to_string())
             .parse::<u16>()
             .map_err(|e| format!("Invalid LB_PORT: {}", e))?;
 
         let server_str = std::env::var("BACKEND_SERVERS")
-            .map_err(|e| format!("Failed to read BACKEND_SERVERS: {}", e))?;
+            .unwrap_or_else(|_| "127.0.0.1:8001,127.0.0.1:8002,127.0.0.1:8003".to_string());
 
         let backend_servers = Self::parse_backend_servers(&server_str)?;
 
@@ -60,6 +61,8 @@ impl LoadBalancerConfig {
             .unwrap_or_else(|_| "86400".to_string())
             .parse::<u64>()?;
 
+        let lb_secret = std::env::var("LB_SECRET").unwrap_or_else(|_| "secret".to_string());
+
         Ok(Self {
             lb_port,
             backend_servers,
@@ -67,6 +70,7 @@ impl LoadBalancerConfig {
             health_check_timeout,
             sticky_cookie_name,
             sticky_cookie_max_age,
+            lb_secret,
         })
     }
 
@@ -86,9 +90,6 @@ impl LoadBalancerConfig {
                     .parse::<u16>()
                     .map_err(|e| format!("Invalid port: {}", e))?,
             });
-        }
-        if servers.is_empty() {
-            return Err("No backend servers provided".into());
         }
         Ok(servers)
     }

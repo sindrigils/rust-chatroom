@@ -1,6 +1,6 @@
 use crate::{
-    middleware::require_auth,
-    routes::{protected_router, public_router},
+    middleware::{require_lb_auth, require_user_auth},
+    routes::{health_router, protected_router, public_router},
     ws::{chat_list_ws, chat_ws},
 };
 use axum::{
@@ -13,11 +13,10 @@ use axum::{
 use dotenv::dotenv;
 use migration::{Migrator, MigratorTrait};
 use sea_orm_migration::prelude::*;
-use tracing_subscriber;
 
 use redis::{Client as RedisClient, aio::ConnectionManager};
 use sea_orm::{Database, DatabaseConnection};
-use std::io::Write;
+
 use std::{net::SocketAddr, time::Duration};
 use tokio::net::TcpListener;
 use tower_cookies::CookieManagerLayer;
@@ -26,6 +25,7 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 mod config;
 mod entity;
 mod errors;
+mod logging;
 mod middleware;
 mod models;
 mod routes;
@@ -41,32 +41,15 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    eprintln!("=== BACKEND STARTING ===");
-    println!("=== BACKEND STARTING ===");
-
-    std::io::stdout().flush().unwrap();
-    std::io::stderr().flush().unwrap();
-
     dotenv().ok();
-    eprintln!("=== DOTENV LOADED ===");
 
-    tracing_subscriber::fmt::init();
-    eprintln!("=== TRACING INITIALIZED ===");
+    let _log_guard = logging::init_logging();
 
-    eprintln!("=== CONNECTING TO DATABASE ===");
-    let database_url = std::env::var("DATABASE_URL").expect("no DATABASE_URL found in environment");
-    eprintln!("=== DATABASE_URL: {} ===", database_url);
-
+    let database_url = std::env::var("DATABASE_URL")?;
     let db = Database::connect(database_url).await?;
-    eprintln!("=== DATABASE CONNECTED ===");
 
-    eprintln!("=== RUNNING MIGRATIONS ===");
     Migrator::up(&db, None).await?;
-    eprintln!("=== MIGRATIONS COMPLETED ===");
-
-    eprintln!("=== LOADING SETTINGS ===");
     let settings = config::Settings::new();
-    eprintln!("=== SETTINGS LOADED ===");
 
     let redis_client = RedisClient::open(std::env::var("REDIS_URL")?)?;
     let redis_mgr = ConnectionManager::new(redis_client.clone()).await?;
@@ -78,8 +61,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         redis: redis_mgr,
     };
 
-    let public = public_router();
-    let protected = protected_router().layer(from_fn_with_state(state.clone(), require_auth));
+    let public = public_router().layer(from_fn_with_state(state.clone(), require_lb_auth));
+    let health = health_router();
+
+    let protected = protected_router()
+        .layer(from_fn_with_state(state.clone(), require_user_auth))
+        .layer(from_fn_with_state(state.clone(), require_lb_auth));
 
     let api_v1 = Router::new()
         .nest("/api/v1", public)
@@ -88,7 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ws_route = Router::new()
         .route("/ws/chat", get(chat_ws))
         .route("/ws/chat-list", get(chat_list_ws))
-        .layer(from_fn_with_state(state.clone(), require_auth));
+        .layer(from_fn_with_state(state.clone(), require_user_auth))
+        .layer(from_fn_with_state(state.clone(), require_lb_auth));
 
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::exact(
@@ -103,6 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_age(Duration::from_secs(3600));
 
     let app = Router::new()
+        .merge(health)
         .merge(api_v1)
         .merge(ws_route)
         .layer(CookieManagerLayer::new())

@@ -6,7 +6,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
-use crate::server_pool::BackendServer;
+use crate::core::BackendServer;
 
 #[derive(Clone)]
 pub struct HashRing {
@@ -44,15 +44,6 @@ impl HashRing {
             server_health: Arc::new(RwLock::new(health_map)),
             servers: server_map,
         }
-    }
-
-    pub async fn get_healthy_servers(&self) -> Vec<BackendServer> {
-        let health_map = self.server_health.read().await;
-        self.servers
-            .values()
-            .filter(|server| health_map.get(&server.id).copied().unwrap_or(false))
-            .cloned()
-            .collect()
     }
 
     pub async fn update_server_health(&self, server_id: &str, is_healthy: bool) {

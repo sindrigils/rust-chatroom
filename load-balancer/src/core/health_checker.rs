@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crate::server_pool::ServerPool;
+use crate::core::ServerPool;
 
 const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -23,7 +23,7 @@ impl HealthChecker {
 
     async fn check_all_servers(&self) -> Result<(), Box<dyn std::error::Error>> {
         for server in self.server_pool.get_servers().await {
-            let url = format!("http://{}/api/v1/health", server.address);
+            let url = format!("http://{}/health", server.address);
             let is_healthy = self.ping_server(url).await;
 
             self.server_pool.update_last_health_check(&server.id).await;

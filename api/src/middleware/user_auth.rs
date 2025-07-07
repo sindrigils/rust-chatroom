@@ -10,12 +10,12 @@ use sea_orm::EntityTrait;
 
 use crate::{AppState, entity::user, errors::Error, models::claims::Claims};
 
-pub async fn require_auth(
+pub async fn require_user_auth(
     State(state): State<AppState>,
-    mut req: Request<Body>,
+    mut request: Request<Body>,
     next: Next,
 ) -> Result<Response<Body>, Error> {
-    let token_opt = req
+    let token_opt = request
         .headers()
         .get(header::COOKIE)
         .and_then(|hdr| hdr.to_str().ok())
@@ -56,7 +56,7 @@ pub async fn require_auth(
         return Err(Error::Unauthorized);
     }
 
-    req.extensions_mut().insert(token_data.claims.clone());
-    let res = next.run(req).await;
+    request.extensions_mut().insert(token_data.claims.clone());
+    let res = next.run(request).await;
     Ok(res)
 }

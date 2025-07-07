@@ -1,11 +1,10 @@
 use axum::{Json, extract::State};
-use hyper::http::StatusCode;
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::AppState;
+use crate::{AppState, errors::Error};
 
-pub async fn status(State(state): State<AppState>) -> Result<Json<serde_json::Value>, StatusCode> {
+pub async fn status(State(state): State<AppState>) -> Result<Json<serde_json::Value>, Error> {
     let servers = state.server_pool.get_servers().await;
 
     let server_status: Vec<serde_json::Value> = servers

@@ -1,7 +1,6 @@
 use crate::{
-    health_checker::HealthChecker,
-    proxy_service::{ProxyService, proxy_handler},
-    server_pool::ServerPool,
+    core::{HealthChecker, ServerPool},
+    routing::{ProxyService, http_handler, websocket_handler},
 };
 use axum::Router;
 use dotenv::dotenv;
@@ -11,25 +10,24 @@ use tower_cookies::CookieManagerLayer;
 use tracing::info;
 
 mod config;
-mod hash_ring;
-mod health_checker;
-mod log;
-mod proxy_service;
+mod core;
+mod errors;
+mod logging;
 mod routes;
-mod server_pool;
+mod routing;
 
 #[derive(Clone)]
 pub struct AppState {
     pub config: config::LoadBalancerConfig,
-    pub server_pool: server_pool::ServerPool,
-    pub proxy_service: proxy_service::ProxyService,
+    pub server_pool: ServerPool,
+    pub proxy_service: ProxyService,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
-    let _log_guard = log::init_logging();
+    let _log_guard = logging::init_logging();
 
     let config = config::LoadBalancerConfig::from_env()?;
     let server_pool = ServerPool::new(&config.backend_servers).await;
@@ -50,7 +48,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let public = routes::public_router();
     let app = Router::new()
         .merge(public)
-        .fallback(proxy_handler)
+        .route("/ws/{*path}", axum::routing::get(websocket_handler))
+        .fallback(http_handler)
         .with_state(app_state.clone())
         .layer(CookieManagerLayer::new());
 

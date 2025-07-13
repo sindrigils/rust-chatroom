@@ -1,4 +1,10 @@
-import { useEffect, useState, useRef, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useState,
+  useRef,
+  useCallback,
+  type KeyboardEvent,
+} from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import styled from "styled-components";
 
@@ -22,10 +28,16 @@ export const ChatRoom = () => {
   const [input, setInput] = useState("");
   const [isConnected, setIsConnected] = useState(false);
   const [showUserList, setShowUserList] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+
+  const maxReconnectAttempts = 5;
+  const reconnectBaseDelay = 1000; // 1 second
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -35,19 +47,39 @@ export const ChatRoom = () => {
     inputRef.current?.focus();
   }, []);
 
-  useEffect(() => {
+  const reconnectRef = useRef<null | VoidFunction>(null);
+
+  const connectWebSocket = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
     const ws = new WebSocket(`/ws/chat?chat_id=${roomId}`);
 
     ws.onopen = () => {
       setIsConnected(true);
+      setIsReconnecting(false);
+      reconnectAttemptsRef.current = 0;
+      console.log("WebSocket connected");
     };
 
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       setIsConnected(false);
+
+      if (e.code === 1001) {
+        // Server migration - reconnect immediately
+        console.log("Server migration detected, reconnecting...");
+        reconnectRef.current?.();
+      } else if (e.code !== 1000) {
+        // Unexpected close - attempt reconnect with backoff
+        console.log("WebSocket connection lost, attempting reconnection...");
+        reconnectRef.current?.();
+      }
     };
 
-    ws.onerror = () => {
+    ws.onerror = (error) => {
       setIsConnected(false);
+      console.error("WebSocket error:", error);
     };
 
     ws.onmessage = (e) => {
@@ -75,13 +107,53 @@ export const ChatRoom = () => {
     };
 
     wsRef.current = ws;
+  }, [roomId]);
+
+  const reconnect = useCallback((): void => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+
+    if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+      console.error("Max reconnection attempts reached");
+      setIsReconnecting(false);
+      return;
+    }
+
+    setIsReconnecting(true);
+    reconnectAttemptsRef.current++;
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+    const delay = Math.min(
+      reconnectBaseDelay * Math.pow(2, reconnectAttemptsRef.current - 1),
+      30000 // Max delay of 30 seconds
+    );
+
+    console.log(
+      `Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`
+    );
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      connectWebSocket();
+    }, delay);
+  }, [connectWebSocket]);
+
+  // Assign the reconnect function to the ref
+  reconnectRef.current = reconnect;
+
+  useEffect(() => {
+    connectWebSocket();
+
     return () => {
-      if (wsRef.current === ws) {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close(1000, "Component unmounting");
         wsRef.current = null;
-        ws.close();
       }
     };
-  }, [roomId]);
+  }, [connectWebSocket]);
 
   if (!user) {
     return null;
@@ -132,6 +204,12 @@ export const ChatRoom = () => {
     });
   };
 
+  const getConnectionStatusText = () => {
+    if (isReconnecting) {
+      return `Reconnecting... (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`;
+    }
+    return isConnected ? "Connected" : "Disconnected";
+  };
   return (
     <Page>
       <ChatContainer>
@@ -140,9 +218,15 @@ export const ChatRoom = () => {
             <BackButton onClick={() => navigate("/join")}>←</BackButton>
             <RoomInfo>
               <RoomName>Room #{roomId}</RoomName>
-              <ConnectionStatus $isConnected={isConnected}>
-                <StatusDot $isConnected={isConnected} />
-                {isConnected ? "Connected" : "Disconnected"}
+              <ConnectionStatus
+                $isConnected={isConnected}
+                $isReconnecting={isReconnecting}
+              >
+                <StatusDot
+                  $isConnected={isConnected}
+                  $isReconnecting={isReconnecting}
+                />
+                {getConnectionStatusText()}
               </ConnectionStatus>
             </RoomInfo>
           </HeaderLeft>
@@ -246,7 +330,13 @@ export const ChatRoom = () => {
           <InputWrapper>
             <MessageInput
               ref={inputRef}
-              placeholder="Type your message..."
+              placeholder={
+                isReconnecting
+                  ? "Reconnecting..."
+                  : isConnected
+                  ? "Type your message..."
+                  : "Disconnected"
+              }
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -265,6 +355,50 @@ export const ChatRoom = () => {
   );
 };
 
+// Updated styled components with reconnection status
+const ConnectionStatus = styled.div<{
+  $isConnected: boolean;
+  $isReconnecting?: boolean;
+}>(({ $isConnected, $isReconnecting }) => ({
+  display: "flex",
+  alignItems: "center",
+  gap: theme.spacing[2],
+  fontSize: theme.typography.fontSize.sm,
+  color: $isReconnecting
+    ? theme.colors.warning || "#FFA500"
+    : $isConnected
+    ? theme.colors.success
+    : theme.colors.error,
+  fontWeight: theme.typography.fontWeight.medium,
+
+  "@media (max-width: 768px)": {
+    fontSize: theme.typography.fontSize.xs,
+  },
+}));
+
+const StatusDot = styled.div<{
+  $isConnected: boolean;
+  $isReconnecting?: boolean;
+}>(({ $isConnected, $isReconnecting }) => ({
+  width: "8px",
+  height: "8px",
+  borderRadius: "50%",
+  backgroundColor: $isReconnecting
+    ? theme.colors.warning || "#FFA500"
+    : $isConnected
+    ? theme.colors.success
+    : theme.colors.error,
+  flexShrink: 0,
+  animation: $isReconnecting ? "pulse 1.5s infinite" : "none",
+
+  "@keyframes pulse": {
+    "0%": { opacity: 1 },
+    "50%": { opacity: 0.5 },
+    "100%": { opacity: 1 },
+  },
+}));
+
+// Rest of your existing styled components remain the same...
 const Page = styled.div({
   height: "100vh",
   backgroundColor: theme.colors.background,
@@ -369,29 +503,6 @@ const RoomName = styled.h1({
     fontSize: theme.typography.fontSize.lg,
   },
 });
-
-const ConnectionStatus = styled.div<{ $isConnected: boolean }>(
-  ({ $isConnected }) => ({
-    display: "flex",
-    alignItems: "center",
-    gap: theme.spacing[2],
-    fontSize: theme.typography.fontSize.sm,
-    color: $isConnected ? theme.colors.success : theme.colors.error,
-    fontWeight: theme.typography.fontWeight.medium,
-
-    "@media (max-width: 768px)": {
-      fontSize: theme.typography.fontSize.xs,
-    },
-  })
-);
-
-const StatusDot = styled.div<{ $isConnected: boolean }>(({ $isConnected }) => ({
-  width: "8px",
-  height: "8px",
-  borderRadius: "50%",
-  backgroundColor: $isConnected ? theme.colors.success : theme.colors.error,
-  flexShrink: 0,
-}));
 
 const HeaderRight = styled.div({
   display: "flex",

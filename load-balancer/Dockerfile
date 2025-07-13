@@ -1,9 +1,8 @@
-
 FROM rustlang/rust:nightly-slim as builder
 
 WORKDIR /workspace
 
-# Install build dependencies (add others if needed)
+# Install build dependencies
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 
 # Copy the full workspace (api + load-balancer)

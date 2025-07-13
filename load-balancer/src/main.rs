@@ -1,9 +1,13 @@
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+
 use crate::{
     core::{HealthChecker, ServerPool},
     routing::{ProxyService, http_handler, websocket_handler},
 };
 use axum::Router;
 use dotenv::dotenv;
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
+use tower_http::services::{ServeDir, ServeFile};
 
 use tokio::net::TcpListener;
 use tower_cookies::CookieManagerLayer;
@@ -46,21 +50,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let public = routes::public_router();
+
+    let governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(app_state.config.rate_limit_per_second)
+            .burst_size(app_state.config.rate_limit_burst_size)
+            .finish()
+            .unwrap(),
+    );
+    let governor_limiter = governor_conf.limiter().clone();
+    let interval = Duration::from_secs(60);
+
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(interval);
+            tracing::info!("rate limiting storage size: {}", governor_limiter.len());
+            governor_limiter.retain_recent();
+        }
+    });
+
     let app = Router::new()
         .merge(public)
         .route("/ws/{*path}", axum::routing::get(websocket_handler))
-        .fallback(http_handler)
+        .route("/api/{*path}", axum::routing::any(http_handler))
+        .nest_service("/assets", ServeDir::new("dist/assets"))
+        .fallback_service(
+            ServeDir::new("dist")
+                .append_index_html_on_directories(true)
+                .fallback(ServeFile::new("dist/index.html")),
+        )
         .with_state(app_state.clone())
-        .layer(CookieManagerLayer::new());
+        .layer(CookieManagerLayer::new())
+        .layer(GovernorLayer {
+            config: governor_conf,
+        });
 
-    let bind_addr = format!("0.0.0.0:{}", app_state.config.lb_port);
+    let bind_addr = format!("{}:{}", app_state.config.host, app_state.config.port);
     let listener = TcpListener::bind(&bind_addr).await?;
 
     info!("🚀 Load balancer starting on {}", bind_addr);
     info!("📊 Status endpoint: http://{}/status", bind_addr);
     info!("❤️ Health endpoint: http://{}/health", bind_addr);
 
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
 
     Ok(())
 }

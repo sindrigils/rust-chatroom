@@ -10,7 +10,7 @@ use axum::{
 };
 
 use tower_cookies::Cookies;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 pub async fn websocket_handler(
     State(state): State<AppState>,
@@ -18,39 +18,13 @@ pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     request: Request<Body>,
 ) -> Result<Response<Body>, Error> {
-    let request_path = request.uri().path().to_string();
     let request_uri = request.uri().clone();
-
-    debug!("Handling WebSocket request: {}", request_path);
-    debug!("=== WebSocket Debug Info ===");
-    debug!("WebSocket request path: {}", request_path);
-
-    if let Some(session_cookie) = cookies.get("session") {
-        debug!("Session cookie found: {}", session_cookie.value());
-    } else {
-        warn!("No session cookie found!");
-    }
-
-    // Debug: Log request headers
-    debug!("Request headers:");
-    for (name, value) in request.headers() {
-        if let Ok(value_str) = value.to_str() {
-            debug!("  {}: {}", name, value_str);
-        }
-    }
-
-    debug!("=== End WebSocket Debug ===");
 
     // Step 1: Select which backend server to send this request to
     let target_server = {
         let server_result = state
             .proxy_service
-            .select_target_server(
-                &state.server_pool,
-                &state.config,
-                &cookies,
-                request_uri.clone(),
-            )
+            .select_target_server(&state.server_pool, &state.config, &cookies)
             .await;
 
         match server_result {
@@ -93,12 +67,7 @@ pub async fn http_handler(
     let target_server = {
         let server_result = state
             .proxy_service
-            .select_target_server(
-                &state.server_pool,
-                &state.config,
-                &cookies,
-                request.uri().clone(),
-            )
+            .select_target_server(&state.server_pool, &state.config, &cookies)
             .await;
 
         match server_result {

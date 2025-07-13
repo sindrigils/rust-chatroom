@@ -5,18 +5,24 @@ use tokio::{sync::RwLock, time::Instant};
 use crate::{config::ServerConfig, routing::HashRing};
 
 #[derive(Clone)]
-pub struct ServerPool {
-    servers: Arc<RwLock<Vec<BackendServer>>>,
-    hash_ring: HashRing,
-}
-
-#[derive(Clone)]
 pub struct BackendServer {
     pub id: String,
     pub address: String,
     pub is_healthy: bool,
     pub active_connections: usize,
     pub last_health_check: Instant,
+}
+
+impl BackendServer {
+    pub fn health_check(&self) -> String {
+        format!("{}/health", self.address)
+    }
+}
+
+#[derive(Clone)]
+pub struct ServerPool {
+    servers: Arc<RwLock<Vec<BackendServer>>>,
+    hash_ring: HashRing,
 }
 
 impl ServerPool {

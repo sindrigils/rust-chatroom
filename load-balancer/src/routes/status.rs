@@ -37,7 +37,7 @@ pub async fn status(State(state): State<AppState>) -> Result<Json<serde_json::Va
     Ok(Json(json!({
         "load_balancer": {
             "status": "running",
-            "port": state.config.lb_port,
+            "port": state.config.port,
         },
         "backend_servers": server_status,
         "config": {

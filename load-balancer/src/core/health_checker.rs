@@ -23,8 +23,7 @@ impl HealthChecker {
 
     async fn check_all_servers(&self) -> Result<(), Box<dyn std::error::Error>> {
         for server in self.server_pool.get_servers().await {
-            let url = format!("http://{}/health", server.address);
-            let is_healthy = self.ping_server(url).await;
+            let is_healthy = self.ping_server(server.health_check()).await;
 
             self.server_pool.update_last_health_check(&server.id).await;
 

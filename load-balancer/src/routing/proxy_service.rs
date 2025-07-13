@@ -1,7 +1,7 @@
 use crate::core::{BackendServer, ServerPool};
 use crate::errors::Error;
 use crate::routing::{
-    extract_server_from_cookie, extract_user_id_from_jwt, is_public_endpoint,
+    extract_server_from_cookie, extract_user_id_from_jwt
 };
 use crate::{config::LoadBalancerConfig};
 
@@ -50,7 +50,6 @@ impl ProxyService {
         server_pool: &ServerPool,
         config: &LoadBalancerConfig,
         cookies: &Cookies,
-        uri: Uri,
     ) -> Option<BackendServer> {
         if let Some(server_id) = extract_server_from_cookie(cookies, config) {
             if let Some(server) = server_pool.get_server_by_id(&server_id).await {
@@ -71,13 +70,7 @@ impl ProxyService {
             }
         }
 
-        // 3. Check if the request is a public endpoint
-        if is_public_endpoint(&uri) {
-            debug!("Public endpoint, using least loaded server");
-            return server_pool.get_least_loaded_server().await;
-        }
-
-        // 4. Fallback to least loaded server for unauthenticated users
+        // 3. Fallback to least loaded server for unauthenticated users
         debug!("Using fallback routing (least loaded server)");
         server_pool.get_least_loaded_server().await
     }
@@ -94,7 +87,7 @@ impl ProxyService {
         let body = axum_request.into_body(); 
 
         let target_url = format!(
-            "http://{}{}",
+            "{}{}",
             target_server.address,
             uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
         );
@@ -294,14 +287,13 @@ impl ProxyService {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let backend_ws_url = format!(
             "ws://{}{}",
-            target_server.address,
+            target_server.address.strip_prefix("http://").unwrap(),
             uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
         );
     
         info!("Connecting to backend websocket: {}", backend_ws_url);
         debug!("Session cookie parameter received: '{}'", session_cookie);
     
-        // Create the client request using tungstenite's method
         let mut request = backend_ws_url.clone().into_client_request()?;
         
         if !session_cookie.is_empty() {
@@ -357,6 +349,7 @@ impl ProxyService {
                                 Message::Pong(data.to_vec())
                             }
                             axum::extract::ws::Message::Close(close_frame) => {
+                                debug!("Client sent close frame, shutting down connection");
                                 if let Some(frame) = close_frame {
                                     Message::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
                                         code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::from(frame.code),
@@ -380,14 +373,12 @@ impl ProxyService {
                 }
             }
             debug!("Client to backend message forwarding ended");
-
         });
 
         let backend_to_client = tokio::spawn(async move {
             while let Some(msg) = backend_rx.next().await {
                 match msg {
                     Ok(tungstenite_msg) => {
-                        // Convert Tungstenite message to Axum WebSocket message
                         let axum_msg = match tungstenite_msg {
                             Message::Text(text) => {
                                 axum::extract::ws::Message::Text(text.into())
@@ -402,6 +393,7 @@ impl ProxyService {
                                 axum::extract::ws::Message::Pong(data.into())
                             }
                             Message::Close(close_frame) => {
+                                debug!("Backend sent close frame, shutting down connection");
                                 if let Some(frame) = close_frame {
                                     axum::extract::ws::Message::Close(Some(axum::extract::ws::CloseFrame {
                                         code: frame.code.into(),
@@ -411,12 +403,20 @@ impl ProxyService {
                                     axum::extract::ws::Message::Close(None)
                                 }
                             }
-                            _ => continue, // Skip frame types we don't handle
+                            _ => continue, 
                         };
     
-                        if let Err(e) = client_tx.send(axum_msg).await {
-                            error!("Error sending message to client: {}", e);
-                            break;
+                        match client_tx.send(axum_msg).await {
+                            Ok(_) => {
+                            }
+                            Err(e) => {
+                                if e.to_string().contains("closed connection") {
+                                    debug!("Client connection closed, stopping message forwarding");
+                                } else {
+                                    debug!("Error sending message to client: {}", e);
+                                }
+                                break;
+                            }
                         }
                     }
                     Err(e) => {

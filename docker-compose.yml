@@ -37,86 +37,86 @@ services:
       timeout: 3s
       retries: 5
 
-  # backend-1:
-  #   build:
-  #     context: . 
-  #     dockerfile: ./api/Dockerfile
-  #   container_name: chat-backend-1
-  #   environment:
-  #     - DATABASE_URL=postgres://rust_chat:rust_chat@postgres:5432/rust_chat
-  #     - REDIS_URL=redis://:redis_password@redis:6379/0
-  #     - JWT_SECRET=ECHWb4P4lWvw/7is2FpAD9O2W1LvDQdsCj3e5vB669xBngJ4j6795y3dOOiiInolyiJTENQ5EyRgxMNNl/ToDg==
-  #     - DOMAIN=http://localhost:3000
-  #     - HTTP_PORT=8001
-  #     - LB_SECRET=dev-secret-key-12345
-  #   ports:
-  #     - "8001:8001"
-  #   networks:
-  #     - chat-network
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8001/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+  backend-1:
+    build:
+      context: . 
+      dockerfile: ./api/Dockerfile
+    container_name: chat-backend-1
+    environment:
+      - DATABASE_URL=postgres://rust_chat:rust_chat@postgres:5432/rust_chat
+      - REDIS_URL=redis://:redis_password@redis:6379/0
+      - JWT_SECRET=ECHWb4P4lWvw/7is2FpAD9O2W1LvDQdsCj3e5vB669xBngJ4j6795y3dOOiiInolyiJTENQ5EyRgxMNNl/ToDg==
+      - DOMAIN=http://localhost:3000
+      - HTTP_PORT=8001
+      - LB_SECRET=dev-secret-key-12345
+    ports:
+      - "8001:8001"
+    networks:
+      - chat-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # backend-2:
-  #   build:
-  #     context: .
-  #     dockerfile: ./api/Dockerfile
-  #   container_name: chat-backend-2
-  #   environment:
-  #     - DATABASE_URL=postgres://rust_chat:rust_chat@postgres:5432/rust_chat
-  #     - REDIS_URL=redis://:redis_password@redis:6379/0
-  #     - JWT_SECRET=ECHWb4P4lWvw/7is2FpAD9O2W1LvDQdsCj3e5vB669xBngJ4j6795y3dOOiiInolyiJTENQ5EyRgxMNNl/ToDg==
-  #     - DOMAIN=http://localhost:3000
-  #     - HTTP_PORT=8002
-  #     - LB_SECRET=dev-secret-key-12345
-  #   ports:
-  #     - "8002:8002"
-  #   networks:
-  #     - chat-network
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8002/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+  backend-2:
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
+    container_name: chat-backend-2
+    environment:
+      - DATABASE_URL=postgres://rust_chat:rust_chat@postgres:5432/rust_chat
+      - REDIS_URL=redis://:redis_password@redis:6379/0
+      - JWT_SECRET=ECHWb4P4lWvw/7is2FpAD9O2W1LvDQdsCj3e5vB669xBngJ4j6795y3dOOiiInolyiJTENQ5EyRgxMNNl/ToDg==
+      - DOMAIN=http://localhost:3000
+      - HTTP_PORT=8002
+      - LB_SECRET=dev-secret-key-12345
+    ports:
+      - "8002:8002"
+    networks:
+      - chat-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # backend-3:
-  #   build:
-  #     context: .
-  #     dockerfile: ./api/Dockerfile
-  #   container_name: chat-backend-3
-  #   environment:
-  #     - DATABASE_URL=postgres://rust_chat:rust_chat@postgres:5432/rust_chat
-  #     - REDIS_URL=redis://:redis_password@redis:6379/0
-  #     - JWT_SECRET=ECHWb4P4lWvw/7is2FpAD9O2W1LvDQdsCj3e5vB669xBngJ4j6795y3dOOiiInolyiJTENQ5EyRgxMNNl/ToDg==
-  #     - DOMAIN=http://localhost:3000
-  #     - HTTP_PORT=8003
-  #     - LB_SECRET=dev-secret-key-12345
-  #   ports:
-  #     - "8003:8003"
-  #   networks:
-  #     - chat-network
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     redis:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8003/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+  backend-3:
+    build:
+      context: .
+      dockerfile: ./api/Dockerfile
+    container_name: chat-backend-3
+    environment:
+      - DATABASE_URL=postgres://rust_chat:rust_chat@postgres:5432/rust_chat
+      - REDIS_URL=redis://:redis_password@redis:6379/0
+      - JWT_SECRET=ECHWb4P4lWvw/7is2FpAD9O2W1LvDQdsCj3e5vB669xBngJ4j6795y3dOOiiInolyiJTENQ5EyRgxMNNl/ToDg==
+      - DOMAIN=http://localhost:3000
+      - HTTP_PORT=8003
+      - LB_SECRET=dev-secret-key-12345
+    ports:
+      - "8003:8003"
+    networks:
+      - chat-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8003/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   # load-balancer:
   #   build:

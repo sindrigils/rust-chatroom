@@ -1,7 +1,6 @@
 use crate::{config::LoadBalancerConfig, core::BackendServer};
 
 use base64::Engine;
-use hyper::Uri;
 use serde_json::Value;
 use tower_cookies::Cookies;
 use tracing::debug;
@@ -49,32 +48,6 @@ pub fn parse_jwt_user_id(token: &str) -> Option<String> {
     payload.get("sub")?.as_u64().map(|id| id.to_string())
 }
 
-pub fn is_public_endpoint(uri: &Uri) -> bool {
-    let path = uri.path();
-
-    // Define public endpoints that don't require authentication
-    let public_paths = [
-        "/api/v1/auth/login",
-        "/api/v1/auth/register",
-        "/api/v1/auth/refresh",
-        "/health",
-        "/status",
-        "/favicon.ico",
-        "/robots.txt",
-        // Add more public endpoints as needed
-    ];
-
-    let is_public = public_paths
-        .iter()
-        .any(|&public_path| path.starts_with(public_path));
-
-    if is_public {
-        debug!("Identified public endpoint: {}", path);
-    }
-
-    is_public
-}
-
 /// Set sticky session cookie so future requests go to same server
 pub fn set_sticky_session_cookie(
     cookies: &Cookies,
@@ -92,12 +65,15 @@ pub fn set_sticky_session_cookie(
     }
 
     // Create and set the sticky session cookie
-    // Convert references to owned strings to satisfy 'static lifetime
     let cookie = Cookie::build((config.sticky_cookie_name.clone(), target_server.id.clone()))
         .path("/")
         .http_only(true)
-        .secure(false) // Set to true in production with HTTPS
-        .same_site(tower_cookies::cookie::SameSite::Lax)
+        .secure(!cfg!(debug_assertions))
+        .same_site(if cfg!(debug_assertions) {
+            tower_cookies::cookie::SameSite::Lax
+        } else {
+            tower_cookies::cookie::SameSite::Strict
+        })
         .max_age(tower_cookies::cookie::time::Duration::seconds(
             config.sticky_cookie_max_age as i64,
         ))

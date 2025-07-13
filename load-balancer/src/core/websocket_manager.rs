@@ -19,7 +19,7 @@ impl ConnectionHandle {
         let (close_tx, close_rx) = mpsc::unbounded_channel();
         let connection_id = CONNECTION_ID_COUNTER.fetch_add(1, Ordering::SeqCst);
         let handle = Self {
-            id: format!("conn_{}", connection_id),
+            id: format!("conn_{connection_id}"),
             server_id,
             user_id,
             close_tx,
@@ -36,6 +36,12 @@ impl ConnectionHandle {
 pub struct WebSocketManager {
     connections: Arc<RwLock<HashMap<String, ConnectionHandle>>>,
     server_connections: Arc<RwLock<HashMap<String, Vec<String>>>>,
+}
+
+impl Default for WebSocketManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WebSocketManager {

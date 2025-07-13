@@ -26,7 +26,7 @@ pub struct ServerPool {
 }
 
 impl ServerPool {
-    pub async fn new(servers: &Vec<ServerConfig>) -> Self {
+    pub async fn new(servers: &[ServerConfig]) -> Self {
         let backend_servers: Vec<BackendServer> = servers
             .iter()
             .map(|s| BackendServer {

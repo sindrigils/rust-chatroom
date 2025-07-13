@@ -4,7 +4,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub fn init_logging() -> Arc<tracing_appender::non_blocking::WorkerGuard> {
     // Create logs directory if it doesn't exist
     std::fs::create_dir_all("logs").unwrap_or_else(|e| {
-        eprintln!("Failed to create logs directory: {}", e);
+        eprintln!("Failed to create logs directory: {e}");
     });
 
     // Create a simple file appender with .log extension

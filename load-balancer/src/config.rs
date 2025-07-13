@@ -36,7 +36,7 @@ impl LoadBalancerConfig {
         let port = std::env::var("PORT")
             .unwrap_or_else(|_| "8080".to_string())
             .parse::<u16>()
-            .map_err(|e| format!("Invalid PORT: {}", e))?;
+            .map_err(|e| format!("Invalid PORT: {e}"))?;
 
         let server_str = std::env::var("BACKEND_SERVERS").unwrap_or_else(|_| {
             "http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003".to_string()
@@ -106,25 +106,25 @@ impl LoadBalancerConfig {
 
     fn parse_server_url(server: &str) -> Result<(String, u16), Box<dyn std::error::Error>> {
         if server.contains("://") {
-            let url = url::Url::parse(server).map_err(|e| format!("Invalid URL format: {}", e))?;
+            let url = url::Url::parse(server).map_err(|e| format!("Invalid URL format: {e}"))?;
 
             let host = url.host_str().ok_or("URL must have a host")?;
 
             let port = url.port().ok_or("URL must have a port")?;
 
-            Ok((format!("http://{}", host), port))
+            Ok((format!("http://{host}"), port))
         } else {
             let parts: Vec<&str> = server.split(':').collect();
             if parts.len() != 2 {
-                return Err(format!("Invalid server format: {}", server).into());
+                return Err(format!("Invalid server format: {server}").into());
             }
 
             let host = parts[0].to_string();
             let port = parts[1]
                 .parse::<u16>()
-                .map_err(|e| format!("Invalid port: {}", e))?;
+                .map_err(|e| format!("Invalid port: {e}"))?;
 
-            Ok((format!("http://{}", host), port))
+            Ok((format!("http://{host}"), port))
         }
     }
 }

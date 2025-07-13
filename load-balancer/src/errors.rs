@@ -11,14 +11,14 @@ use std::fmt;
 pub enum Error {
     WebSocketUpgradeFailed,
     WebSocketConnectionFailed,
-    WebSocketProxyError,
+    WebSocketProxy,
 
     MethodNotAllowed,
     Unauthorized,
     BadRequest,
     BadGateway,
     ServiceUnavailable,
-    InternalServerError,
+    InternalServer,
 }
 
 #[derive(Serialize)]
@@ -33,18 +33,14 @@ impl IntoResponse for Error {
             Error::WebSocketConnectionFailed => {
                 (StatusCode::BAD_GATEWAY, "websocket connection failed")
             }
-            Error::WebSocketProxyError => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "websocket proxy error")
-            }
+            Error::WebSocketProxy => (StatusCode::INTERNAL_SERVER_ERROR, "websocket proxy error"),
 
             Error::MethodNotAllowed => (StatusCode::METHOD_NOT_ALLOWED, "method not allowed"),
             Error::Unauthorized => (StatusCode::UNAUTHORIZED, "invalid credentials"),
             Error::BadRequest => (StatusCode::BAD_REQUEST, "bad request"),
             Error::BadGateway => (StatusCode::BAD_GATEWAY, "bad gateway"),
             Error::ServiceUnavailable => (StatusCode::SERVICE_UNAVAILABLE, "service unavailable"),
-            Error::InternalServerError => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
-            }
+            Error::InternalServer => (StatusCode::INTERNAL_SERVER_ERROR, "internal server error"),
         };
 
         let body = Json(ErrorBody { error: msg });

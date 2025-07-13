@@ -28,7 +28,7 @@ pub enum Error {
 
     NotFound,
     Unauthorized,
-    InternalServerError,
+    InternalServer,
 }
 
 #[derive(Serialize)]
@@ -65,7 +65,7 @@ impl IntoResponse for Error {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
             }
 
-            Error::InternalServerError => {
+            Error::InternalServer => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "something went wrong")
             }
         };

@@ -50,7 +50,7 @@ pub async fn require_user_auth(
     if user::Entity::find_by_id(user_id)
         .one(&state.db)
         .await
-        .map_err(|_| Error::InternalServerError)?
+        .map_err(|_| Error::InternalServer)?
         .is_none()
     {
         return Err(Error::Unauthorized);

@@ -55,7 +55,7 @@ pub async fn login(
 fn create_jwt_token(user_id: i32, username: &str, secret: &str) -> Result<String, Error> {
     let expiration = Utc::now()
         .checked_add_signed(Duration::hours(24))
-        .ok_or(Error::InternalServerError)?
+        .ok_or(Error::InternalServer)?
         .timestamp() as usize;
 
     let claims = Claims {

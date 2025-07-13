@@ -10,7 +10,7 @@ use axum::{
     routing::get,
     serve,
 };
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use migration::{Migrator, MigratorTrait};
 use sea_orm_migration::prelude::*;
 

@@ -322,7 +322,6 @@ impl ProxyService {
         );
     
         info!("Connecting to backend websocket: {}", backend_ws_url);
-        debug!("Session cookie parameter received: '{}'", session_cookie);
     
         let mut request = backend_ws_url.clone().into_client_request()?;
         

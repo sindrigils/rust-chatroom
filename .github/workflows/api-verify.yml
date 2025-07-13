@@ -61,14 +61,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-      
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-      
-      - name: Audit api
-        run: cargo audit --manifest-path api/Cargo.toml
+      - name: Security audit
+        uses: rustsec/audit-check@v1.4.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          working-directory: api
 
   build:
     name: Build Check

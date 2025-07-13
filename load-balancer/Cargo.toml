@@ -26,4 +26,5 @@ base64 = "0.22.1"
 dotenv = "0.15"
 derive_more = "0.99"
 http = "1.0"
+uuid = "1.17.0"
 

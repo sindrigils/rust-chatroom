@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use crate::{
-    core::{HealthChecker, ServerPool},
+    core::{HealthChecker, ServerPool, WebSocketManager},
     routing::{ProxyService, http_handler, websocket_handler},
 };
 use axum::Router;
@@ -25,6 +25,7 @@ pub struct AppState {
     pub config: config::LoadBalancerConfig,
     pub server_pool: ServerPool,
     pub proxy_service: ProxyService,
+    pub ws_manager: Arc<WebSocketManager>,
 }
 
 #[tokio::main]
@@ -36,15 +37,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = config::LoadBalancerConfig::from_env()?;
     let server_pool = ServerPool::new(&config.backend_servers).await;
     let proxy_service = ProxyService::new();
+    let ws_manager = Arc::new(WebSocketManager::new());
+    let ws_manager_for_health = ws_manager.clone();
+
     let app_state = AppState {
         config,
         server_pool,
         proxy_service,
+        ws_manager,
     };
 
     let health_checker = HealthChecker::new(app_state.server_pool.clone());
     tokio::spawn(async move {
-        if let Err(e) = health_checker.start().await {
+        if let Err(e) = health_checker.start(ws_manager_for_health).await {
             tracing::error!("Health checker error: {}", e);
         }
     });

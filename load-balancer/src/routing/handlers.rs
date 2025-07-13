@@ -41,14 +41,17 @@ pub async fn websocket_handler(
 
     // Step 3: Handle WebSocket upgrade
     info!("Handling WebSocket upgrade to {}", target_server.address);
-    state
-        .server_pool
-        .increment_connections(&target_server.id)
-        .await;
 
     state
         .proxy_service
-        .handle_websocket_upgrade(ws, &target_server, request_uri, &cookies, &state.config)
+        .handle_websocket_upgrade(
+            ws,
+            &target_server,
+            request_uri,
+            &cookies,
+            &state.config,
+            &state.ws_manager,
+        )
         .await
 }
 

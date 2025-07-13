@@ -7,27 +7,32 @@ use crate::{AppState, errors::Error};
 pub async fn status(State(state): State<AppState>) -> Result<Json<serde_json::Value>, Error> {
     let servers = state.server_pool.get_servers().await;
 
-    let server_status: Vec<serde_json::Value> = servers
-        .into_iter()
-        .map(|server| {
-            // Convert Instant to seconds since epoch for serialization
-            let last_check_secs = server.last_health_check.elapsed().as_secs();
-            let last_check_timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                - last_check_secs;
+    let mut server_status = Vec::new();
 
-            json!({
-                "id": server.id,
-                "address": server.address,
-                "healthy": server.is_healthy,
-                "active_connections": server.active_connections,
-                "last_health_check_seconds_ago": last_check_secs,
-                "last_health_check_timestamp": last_check_timestamp
-            })
-        })
-        .collect();
+    for server in servers {
+        let last_check_secs = server.last_health_check.elapsed().as_secs();
+        let last_check_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            - last_check_secs;
+
+        let ws_connections = state
+            .ws_manager
+            .get_server_connections(&server.id)
+            .await
+            .len();
+
+        server_status.push(json!({
+            "id": server.id,
+            "address": server.address,
+            "healthy": server.is_healthy,
+            "active_connections": server.active_connections,
+            "last_health_check_seconds_ago": last_check_secs,
+            "last_health_check_timestamp": last_check_timestamp,
+            "active_websocket_connections": ws_connections
+        }));
+    }
 
     let current_timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)

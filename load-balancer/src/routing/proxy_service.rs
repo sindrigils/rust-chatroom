@@ -1,4 +1,4 @@
-use crate::core::{BackendServer, ServerPool};
+use crate::core::{BackendServer, ConnectionHandle, ServerPool, WebSocketManager};
 use crate::errors::Error;
 use crate::routing::{
     extract_server_from_cookie, extract_user_id_from_jwt
@@ -244,11 +244,15 @@ impl ProxyService {
         uri: Uri,
         cookies: &Cookies,
         config: &LoadBalancerConfig,
+        ws_manager: &WebSocketManager,
+
     ) -> Result<Response<Body>, Error> {
         let target_server_clone = target_server.clone();
         let uri_clone = uri.clone();
         let lb_secret = config.lb_secret.clone();
+        let ws_manager_clone = ws_manager.clone();
 
+        let user_id = extract_user_id_from_jwt(cookies).map(|id| id.to_string());
 
         let session_cookie = cookies
             .get("session")
@@ -261,18 +265,44 @@ impl ProxyService {
         );
 
         let ws_response = ws.on_upgrade(move |client_socket| async move {
-            if let Err(e) = Self::proxy_websocket_connection(
+            // Create connection handle
+            let (connection_handle, mut close_receiver) = ConnectionHandle::new(
+                target_server_clone.id.clone(),
+                user_id.clone(),
+            );
+
+            // Add connection to manager
+            ws_manager_clone.add_connection(connection_handle.clone()).await;
+
+            let connection_id = connection_handle.id.clone();
+            let ws_manager_for_cleanup = ws_manager_clone.clone();
+            
+            // Monitor for close signals
+            let close_monitor = tokio::spawn(async move {
+                if let Some(_) = close_receiver.recv().await {
+                    info!("Received close signal for connection: {}", connection_id);
+                }
+                ws_manager_for_cleanup.remove_connection(&connection_id).await;
+            });
+
+            // Handle the WebSocket proxy connection (your existing logic)
+            let proxy_result = Self::proxy_websocket_connection(
                 client_socket,
-                target_server_clone,
+                target_server_clone.clone(),
                 uri_clone,
                 session_cookie,
                 lb_secret,
-            )
-            .await
-            {
+            ).await;
+
+            // Clean up
+            close_monitor.abort();
+            ws_manager_clone.remove_connection(&connection_handle.id).await;
+
+            if let Err(e) = proxy_result {
                 error!("WebSocket proxy error: {}", e);
             }
         });
+
 
         Ok(ws_response)
     }

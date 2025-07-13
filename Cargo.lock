@@ -1946,6 +1946,7 @@ dependencies = [
  "tracing-subscriber",
  "tungstenite 0.20.1",
  "url",
+ "uuid",
 ]
 
 [[package]]

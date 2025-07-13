@@ -100,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], state.settings.http_port));
     let listener = TcpListener::bind(addr).await?;
-    println!("Listening on {}", addr);
+    println!("Listening on {addr}");
     serve(listener, app).await?;
 
     Ok(())

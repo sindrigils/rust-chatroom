@@ -2,6 +2,7 @@ name: API Verify
 
 on:
   push:
+    branches: [main, develop]
     paths:
       - 'api/**'
   pull_request:
@@ -25,8 +26,7 @@ jobs:
           components: rustfmt
       
       - name: Check api formatting
-        working-directory: ./api
-        run: cargo fmt --all -- --check
+        run: cargo fmt --manifest-path api/Cargo.toml --all -- --check
 
   lint:
     name: Clippy Linting
@@ -52,8 +52,7 @@ jobs:
             ${{ runner.os }}-api-
 
       - name: Lint api
-        working-directory: ./api
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --manifest-path api/Cargo.toml --all-targets --all-features -- -D warnings
 
   security-audit:
     name: Security Audit
@@ -69,8 +68,7 @@ jobs:
         run: cargo install cargo-audit
       
       - name: Audit api
-        working-directory: ./api
-        run: cargo audit
+        run: cargo audit --manifest-path api/Cargo.toml
 
   build:
     name: Build Check
@@ -94,5 +92,4 @@ jobs:
             ${{ runner.os }}-api-
     
       - name: Build api
-        working-directory: ./api
-        run: cargo build --release
+        run: cargo build --manifest-path api/Cargo.toml --release

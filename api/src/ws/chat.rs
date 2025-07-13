@@ -30,7 +30,7 @@ pub async fn chat_ws(
         .get("chat_id")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
-    let user_id: i32 = claims.sub as i32;
+    let user_id: i32 = claims.sub;
     let username = claims.username.clone();
     let db = state.db.clone();
 
@@ -164,7 +164,7 @@ async fn update_user_count(state: &AppState, chat_id: i32) {
     .to_string();
 
     let mut redis = state.redis.clone();
-    let _ = redis.publish("chat_list", payload).await.unwrap_or(());
+    redis.publish("chat_list", payload).await.unwrap_or(());
 }
 
 async fn broadcast_user_list(state: &AppState, chat_id: i32) {
@@ -188,7 +188,7 @@ async fn broadcast_user_list(state: &AppState, chat_id: i32) {
     .to_string();
 
     let mut redis = state.redis.clone();
-    let _ = redis
+    redis
         .publish(format!("chat:{chat_id}"), payload)
         .await
         .unwrap_or(());

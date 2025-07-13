@@ -5,6 +5,12 @@ pub struct Settings {
     pub lb_secret: String,
 }
 
+impl Default for Settings {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Settings {
     pub fn new() -> Self {
         let http_port = std::env::var("HTTP_PORT")

@@ -65,9 +65,7 @@ impl IntoResponse for Error {
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
             }
 
-            Error::InternalServer => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "something went wrong")
-            }
+            Error::InternalServer => (StatusCode::INTERNAL_SERVER_ERROR, "something went wrong"),
         };
 
         let body = Json(ErrorBody { error: msg });

@@ -20,5 +20,4 @@ jobs:
       - name: Security audit
         uses: rustsec/audit-check@v1.4.1
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
           ignore: RUSTSEC-2023-0071

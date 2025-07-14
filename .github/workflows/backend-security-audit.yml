@@ -3,8 +3,7 @@ name: Backend Security Audit
 on:
   push:
     paths:
-      - 'api/**'
-      - 'load-balancer/**'
+      - "*"
 
 env:
   CARGO_TERM_COLOR: always
@@ -38,7 +37,9 @@ jobs:
           fi
       
       - name: Audit load-balancer
-        run: cargo audit --manifest-path load-balancer/Cargo.toml --ignore RUSTSEC-2023-0071
+        working-directory: ./load-balancer
+        run: cargo audit --ignore RUSTSEC-2023-0071
       
       - name: Audit API
-        run: cargo audit --manifest-path api/Cargo.toml --ignore RUSTSEC-2023-0071
+        working-directory: ./api
+        run: cargo audit --ignore RUSTSEC-2023-0071

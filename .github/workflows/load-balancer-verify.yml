@@ -1,0 +1,75 @@
+name: Load Balancer Verify
+
+on:
+  push:
+    paths:
+      - 'load-balancer/**'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format-check:
+    name: Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      
+      - name: Check load-balancer formatting
+        run: cargo fmt --manifest-path load-balancer/Cargo.toml --all -- --check
+
+  lint:
+    name: Clippy Linting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      
+      - name: Cache cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            load-balancer/target
+          key: ${{ runner.os }}-load-balancer-${{ hashFiles('load-balancer/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-load-balancer-
+      
+      - name: Lint load-balancer
+        run: cargo clippy --manifest-path load-balancer/Cargo.toml --all-targets --all-features -- -D warnings
+
+  build:
+    name: Build Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            load-balancer/target
+          key: ${{ runner.os }}-load-balancer-${{ hashFiles('load-balancer/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-load-balancer-
+      
+      - name: Build load-balancer
+        run: cargo build --manifest-path load-balancer/Cargo.toml --release

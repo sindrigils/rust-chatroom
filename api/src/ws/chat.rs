@@ -30,7 +30,7 @@ pub async fn chat_ws(
         .get("chat_id")
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);
-    let user_id: i32 = claims.sub as i32;
+    let user_id: i32 = claims.sub;
     let username = claims.username.clone();
     let db = state.db.clone();
 
@@ -66,19 +66,19 @@ async fn handle_socket(
 ) {
     let (mut tx, mut rx_ws) = socket.split();
     let redis_client = state.redis_client.clone();
-    let channel = format!("chat:{}", chat_id);
+    let channel = format!("chat:{chat_id}");
 
     tokio::spawn(async move {
         let conn = match redis_client.get_async_connection().await {
             Ok(c) => c,
             Err(e) => {
-                tracing::error!("pubsub connect failed: {:?}", e);
+                tracing::error!("pubsub connect failed: {e:?}");
                 return;
             }
         };
         let mut pubsub = conn.into_pubsub();
         if let Err(e) = pubsub.subscribe(&channel).await {
-            tracing::error!("subscribe({}) failed: {:?}", channel, e);
+            tracing::error!("subscribe({channel}) failed: {e:?}");
             return;
         }
 
@@ -90,7 +90,7 @@ async fn handle_socket(
                     break;
                 }
             } else {
-                tracing::error!("invalid payload on {}", channel);
+                tracing::error!("invalid payload on {channel}");
             }
         }
     });
@@ -100,7 +100,7 @@ async fn handle_socket(
     broadcast_user_list(&state, chat_id).await;
 
     let mut publisher = state.redis.clone();
-    let key = format!("chat:{}", chat_id);
+    let key = format!("chat:{chat_id}");
     while let Some(Ok(frame)) = rx_ws.next().await {
         if let Message::Text(text) = frame {
             let message = message::ActiveModel {
@@ -113,7 +113,7 @@ async fn handle_socket(
 
             let payload = serde_json::json!({
                 "type": "message",
-                "content": format!("{}: {}", username, text),
+                "content": format!("{username}: {text}"),
             })
             .to_string();
             let _: u64 = publisher.publish(&key, payload).await.unwrap_or(0);
@@ -125,13 +125,13 @@ async fn send_join_notification(state: &AppState, chat_id: i32, username: &str) 
     let payload = serde_json::json!({
         "type": "system_message",
         "subtype": "join",
-        "content": format!("{} joined the chat", username),
+        "content": format!("{username} joined the chat"),
         "username": username
     })
     .to_string();
 
     let mut redis = state.redis.clone();
-    let key = format!("chat:{}", chat_id);
+    let key = format!("chat:{chat_id}");
     let _: u64 = redis.publish(&key, payload).await.unwrap_or(0);
 }
 
@@ -139,13 +139,13 @@ async fn send_leave_notification(state: &AppState, chat_id: i32, username: &str)
     let payload = serde_json::json!({
         "type": "system_message",
         "subtype": "leave",
-        "content": format!("{} left the chat", username),
+        "content": format!("{username} left the chat"),
         "username": username
     })
     .to_string();
 
     let mut redis = state.redis.clone();
-    let key = format!("chat:{}", chat_id);
+    let key = format!("chat:{chat_id}");
     let _: u64 = redis.publish(&key, payload).await.unwrap_or(0);
 }
 
@@ -164,7 +164,7 @@ async fn update_user_count(state: &AppState, chat_id: i32) {
     .to_string();
 
     let mut redis = state.redis.clone();
-    let _ = redis.publish("chat_list", payload).await.unwrap_or(());
+    redis.publish("chat_list", payload).await.unwrap_or(());
 }
 
 async fn broadcast_user_list(state: &AppState, chat_id: i32) {
@@ -188,8 +188,8 @@ async fn broadcast_user_list(state: &AppState, chat_id: i32) {
     .to_string();
 
     let mut redis = state.redis.clone();
-    let _ = redis
-        .publish(format!("chat:{}", chat_id), payload)
+    redis
+        .publish(format!("chat:{chat_id}"), payload)
         .await
         .unwrap_or(());
 }

@@ -1,27 +1,20 @@
+use crate::config::LoadBalancerConfig;
 use crate::core::{BackendServer, ConnectionHandle, ServerPool, WebSocketManager};
 use crate::errors::Error;
-use crate::routing::{
-    extract_server_from_cookie, extract_user_id_from_jwt
-};
-use crate::{config::LoadBalancerConfig};
+use crate::routing::{extract_server_from_cookie, extract_user_id_from_jwt};
 
 use axum::extract::WebSocketUpgrade;
 use axum::extract::ws::WebSocket;
 use axum::http::StatusCode;
-use axum::{
-    body::Body,
-    extract::Request,  
-    response::Response,
-};
+use axum::{body::Body, extract::Request, response::Response};
 
 use futures::{SinkExt, StreamExt};
 use hyper::Uri;
 use reqwest::Client;
 use tokio_tungstenite::{
     connect_async,
-    tungstenite::{client::IntoClientRequest, Message},
+    tungstenite::{Message, client::IntoClientRequest},
 };
-
 
 use std::time::Duration;
 use tower_cookies::Cookies;
@@ -30,6 +23,12 @@ use tracing::{debug, error, info, warn};
 #[derive(Clone)]
 pub struct ProxyService {
     client: Client,
+}
+
+impl Default for ProxyService {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProxyService {
@@ -84,7 +83,7 @@ impl ProxyService {
         let method = axum_request.method().clone();
         let uri = axum_request.uri().clone();
         let headers = axum_request.headers().clone();
-        let body = axum_request.into_body(); 
+        let body = axum_request.into_body();
 
         let target_url = format!(
             "{}{}",
@@ -126,7 +125,6 @@ impl ProxyService {
             }
         }
 
-
         if !body_bytes.is_empty() {
             request_builder = request_builder.body(body_bytes);
         }
@@ -136,7 +134,6 @@ impl ProxyService {
             .header("x-forwarded-by", "rust-load-balancer")
             .header("x-forwarded-server", &target_server.id)
             .header("x-lb-secret", &config.lb_secret);
-
 
         let reqwest_response = match request_builder.send().await {
             Ok(resp) => resp,
@@ -170,7 +167,7 @@ impl ProxyService {
             Ok(bytes) => bytes,
             Err(e) => {
                 error!("Failed to read response body: {}", e);
-                return Err(Error::InternalServerError);
+                return Err(Error::InternalServer);
             }
         };
 
@@ -202,10 +199,9 @@ impl ProxyService {
 
         response_builder.body(body).map_err(|e| {
             error!("Failed to build response: {}", e);
-            Error::InternalServerError
+            Error::InternalServer
         })
     }
-
 
     async fn get_server_for_user(
         &self,
@@ -245,7 +241,6 @@ impl ProxyService {
         cookies: &Cookies,
         config: &LoadBalancerConfig,
         ws_manager: &WebSocketManager,
-
     ) -> Result<Response<Body>, Error> {
         let target_server_clone = target_server.clone();
         let uri_clone = uri.clone();
@@ -266,23 +261,25 @@ impl ProxyService {
 
         let ws_response = ws.on_upgrade(move |client_socket| async move {
             // Create connection handle
-            let (connection_handle, mut close_receiver) = ConnectionHandle::new(
-                target_server_clone.id.clone(),
-                user_id.clone(),
-            );
+            let (connection_handle, mut close_receiver) =
+                ConnectionHandle::new(target_server_clone.id.clone(), user_id.clone());
 
             // Add connection to manager
-            ws_manager_clone.add_connection(connection_handle.clone()).await;
+            ws_manager_clone
+                .add_connection(connection_handle.clone())
+                .await;
 
             let connection_id = connection_handle.id.clone();
             let ws_manager_for_cleanup = ws_manager_clone.clone();
-            
+
             // Monitor for close signals
             let close_monitor = tokio::spawn(async move {
-                if let Some(_) = close_receiver.recv().await {
+                if close_receiver.recv().await.is_some() {
                     info!("Received close signal for connection: {}", connection_id);
                 }
-                ws_manager_for_cleanup.remove_connection(&connection_id).await;
+                ws_manager_for_cleanup
+                    .remove_connection(&connection_id)
+                    .await;
             });
 
             // Handle the WebSocket proxy connection (your existing logic)
@@ -292,17 +289,19 @@ impl ProxyService {
                 uri_clone,
                 session_cookie,
                 lb_secret,
-            ).await;
+            )
+            .await;
 
             // Clean up
             close_monitor.abort();
-            ws_manager_clone.remove_connection(&connection_handle.id).await;
+            ws_manager_clone
+                .remove_connection(&connection_handle.id)
+                .await;
 
             if let Err(e) = proxy_result {
                 error!("WebSocket proxy error: {}", e);
             }
         });
-
 
         Ok(ws_response)
     }
@@ -313,37 +312,38 @@ impl ProxyService {
         uri: Uri,
         session_cookie: String,
         lb_secret: String,
-
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let backend_ws_url = format!(
             "ws://{}{}",
             target_server.address.strip_prefix("http://").unwrap(),
             uri.path_and_query().map(|pq| pq.as_str()).unwrap_or("/")
         );
-    
+
         info!("Connecting to backend websocket: {}", backend_ws_url);
-        debug!("Session cookie parameter received: '{}'", session_cookie);
-    
+
         let mut request = backend_ws_url.clone().into_client_request()?;
-        
+
         if !session_cookie.is_empty() {
             debug!("Adding session cookie to WebSocket request");
             request.headers_mut().insert(
-                "Cookie", 
-                session_cookie.parse().map_err(|_| "Invalid cookie format")?
+                "Cookie",
+                session_cookie
+                    .parse()
+                    .map_err(|_| "Invalid cookie format")?,
             );
         }
-        
+
         request.headers_mut().insert(
-            "x-lb-secret", 
-            lb_secret.parse().map_err(|_| "Invalid LB secret format")?
+            "x-lb-secret",
+            lb_secret.parse().map_err(|_| "Invalid LB secret format")?,
         );
         request.headers_mut().insert(
-            "x-forwarded-by", 
-            "rust-load-balancer".parse().map_err(|_| "Invalid forwarded-by format")?
+            "x-forwarded-by",
+            "rust-load-balancer"
+                .parse()
+                .map_err(|_| "Invalid forwarded-by format")?,
         );
 
-        
         let (backend_socket, _) = connect_async(request).await.map_err(|e| {
             error!(
                 "Failed to connect to backend WebSocket {}: {}",
@@ -351,7 +351,6 @@ impl ProxyService {
             );
             e
         })?;
-    
 
         info!(
             "WebSocket connection established to {}",
@@ -372,25 +371,21 @@ impl ProxyService {
                             axum::extract::ws::Message::Binary(data) => {
                                 Message::Binary(data.to_vec())
                             }
-                            axum::extract::ws::Message::Ping(data) => {
-                                Message::Ping(data.to_vec())
-                            }
-                            axum::extract::ws::Message::Pong(data) => {
-                                Message::Pong(data.to_vec())
-                            }
+                            axum::extract::ws::Message::Ping(data) => Message::Ping(data.to_vec()),
+                            axum::extract::ws::Message::Pong(data) => Message::Pong(data.to_vec()),
                             axum::extract::ws::Message::Close(close_frame) => {
                                 debug!("Client sent close frame, shutting down connection");
                                 if let Some(frame) = close_frame {
                                     Message::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
                                         code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::from(frame.code),
-                                        reason: frame.reason.to_string().into(), 
+                                        reason: frame.reason.to_string().into(),
                                     }))
                                 } else {
                                     Message::Close(None)
                                 }
                             }
                         };
-    
+
                         if let Err(e) = backend_tx.send(tungstenite_msg).await {
                             error!("Error sending message to backend: {}", e);
                             break;
@@ -410,35 +405,30 @@ impl ProxyService {
                 match msg {
                     Ok(tungstenite_msg) => {
                         let axum_msg = match tungstenite_msg {
-                            Message::Text(text) => {
-                                axum::extract::ws::Message::Text(text.into())
-                            }
+                            Message::Text(text) => axum::extract::ws::Message::Text(text.into()),
                             Message::Binary(data) => {
                                 axum::extract::ws::Message::Binary(data.into())
                             }
-                            Message::Ping(data) => {
-                                axum::extract::ws::Message::Ping(data.into())
-                            }
-                            Message::Pong(data) => {
-                                axum::extract::ws::Message::Pong(data.into())
-                            }
+                            Message::Ping(data) => axum::extract::ws::Message::Ping(data.into()),
+                            Message::Pong(data) => axum::extract::ws::Message::Pong(data.into()),
                             Message::Close(close_frame) => {
                                 debug!("Backend sent close frame, shutting down connection");
                                 if let Some(frame) = close_frame {
-                                    axum::extract::ws::Message::Close(Some(axum::extract::ws::CloseFrame {
-                                        code: frame.code.into(),
-                                        reason: frame.reason.to_string().into(), 
-                                    }))
+                                    axum::extract::ws::Message::Close(Some(
+                                        axum::extract::ws::CloseFrame {
+                                            code: frame.code.into(),
+                                            reason: frame.reason.to_string().into(),
+                                        },
+                                    ))
                                 } else {
                                     axum::extract::ws::Message::Close(None)
                                 }
                             }
-                            _ => continue, 
+                            _ => continue,
                         };
-    
+
                         match client_tx.send(axum_msg).await {
-                            Ok(_) => {
-                            }
+                            Ok(_) => {}
                             Err(e) => {
                                 if e.to_string().contains("closed connection") {
                                     debug!("Client connection closed, stopping message forwarding");
@@ -467,11 +457,11 @@ impl ProxyService {
             }
         }
 
-        info!("Websocket proxy connection closed for {}", target_server.address);
+        info!(
+            "Websocket proxy connection closed for {}",
+            target_server.address
+        );
 
         Ok(())
     }
 }
-
-
-

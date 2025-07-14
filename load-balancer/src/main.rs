@@ -5,7 +5,7 @@ use crate::{
     routing::{ProxyService, http_handler, websocket_handler},
 };
 use axum::Router;
-use dotenv::dotenv;
+use dotenvy::dotenv;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::services::{ServeDir, ServeFile};
 

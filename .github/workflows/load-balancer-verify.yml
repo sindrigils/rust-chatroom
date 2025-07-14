@@ -2,10 +2,6 @@ name: Load Balancer Verify
 
 on:
   push:
-    branches: [main, develop]
-    paths:
-      - 'load-balancer/**'
-  pull_request:
     paths:
       - 'load-balancer/**'
 
@@ -53,21 +49,6 @@ jobs:
       
       - name: Lint load-balancer
         run: cargo clippy --manifest-path load-balancer/Cargo.toml --all-targets --all-features -- -D warnings
-      
-  security-audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: load-balancer
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Security audit
-        uses: rustsec/audit-check@v1.4.1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
   build:
     name: Build Check

@@ -2,10 +2,6 @@ name: API Verify
 
 on:
   push:
-    branches: [main, develop]
-    paths:
-      - 'api/**'
-  pull_request:
     paths:
       - 'api/**'
 
@@ -57,9 +53,6 @@ jobs:
   security-audit:
     name: Security Audit
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: api
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

@@ -37,6 +37,22 @@ services:
       timeout: 3s
       retries: 5
 
+  db-migrate:
+    build:
+      context: .
+      dockerfile: ./api/migration/Dockerfile
+    environment:
+      - DATABASE_URL=postgres://rust_chat:rust_chat@postgres:5432/rust_chat
+      - REDIS_URL=redis://:redis_password@redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: "no"
+    networks:
+      - chat-network
+
   backend-1:
     build:
       context: . 
@@ -118,56 +134,60 @@ services:
       timeout: 10s
       retries: 3
 
-  # load-balancer:
-  #   build:
-  #     context: .
-  #     dockerfile: ./load-balancer/Dockerfile
-  #   container_name: chat-load-balancer
-  #   environment:
-  #     - LB_PORT=8080
-  #     - BACKEND_SERVERS=localhost:8001,localhost:8002,localhost:8003
-  #     - HEALTH_CHECK_INTERVAL=10
-  #     - HEALTH_CHECK_TIMEOUT=5
-  #     - STICKY_COOKIE_NAME=lb_server_id
-  #     - STICKY_COOKIE_MAX_AGE=86400
-  #     - RUST_LOG=info
-  #   ports:
-  #     - "8080:8080"
-  #   networks:
-  #     - chat-network
-  #   depends_on:
-  #     - backend-1
-  #     # - backend-2
-  #     # - backend-3
-  #   healthcheck:
-  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+  load-balancer:
+    build:
+      context: .
+      dockerfile: ./load-balancer/Dockerfile
+    container_name: chat-load-balancer
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+      - BACKEND_SERVERS=http://chat-backend-1:8001,http://chat-backend-2:8002,http://chat-backend-3:8003
+      - ALLOWED_ORIGIN=http://localhost:3000
+      - HEALTH_CHECK_INTERVAL=10
+      - HEALTH_CHECK_TIMEOUT=5
+      - STICKY_COOKIE_NAME=lb_server_id
+      - STICKY_COOKIE_MAX_AGE=86400
+      - RUST_LOG=load_balancer=debug,tower_http=debug,info
+      - LB_SECRET=dev-secret-key-12345
+      - TLS_ENABLED=false
+    ports:
+      - "8080:8080"
+    networks:
+      - chat-network
+    depends_on:
+      - backend-1
+      - backend-2
+      - backend-3
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # frontend:
-  #   build:
-  #     context: ./ui
-  #     dockerfile: Dockerfile
-  #   container_name: chat-frontend
-  #   ports:
-  #     - "3000:80"
-  #   networks:
-  #     - chat-network
-  #   depends_on:
-  #     - load-balancer
-  #   healthcheck:
-  #     test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+  frontend:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    container_name: chat-frontend
+    ports:
+      - "3000:80"
+    networks:
+      - chat-network
+    depends_on:
+      - load-balancer
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
-  postgres_data:
-    driver: local
-  redis_data:
-    driver: local
+ postgres_data:
+   driver: local
+ redis_data:
+   driver: local
 
 networks:
-  chat-network:
-    driver: bridge
+ chat-network:
+   driver: bridge

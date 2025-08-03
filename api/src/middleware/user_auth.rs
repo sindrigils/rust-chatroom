@@ -1,40 +1,20 @@
-use axum::{
-    body::Body,
-    extract::State,
-    http::{Request, header},
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::Body, extract::State, http::Request, middleware::Next, response::Response};
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use sea_orm::EntityTrait;
+use tower_cookies::Cookies;
 
 use crate::{AppState, entity::user, errors::Error, models::claims::Claims};
 
 pub async fn require_user_auth(
     State(state): State<AppState>,
+    jar: Cookies,
     mut request: Request<Body>,
     next: Next,
 ) -> Result<Response<Body>, Error> {
-    let token_opt = request
-        .headers()
-        .get(header::COOKIE)
-        .and_then(|hdr| hdr.to_str().ok())
-        .and_then(|s| {
-            s.split(';')
-                .filter_map(|kv| {
-                    let mut parts = kv.trim().splitn(2, '=');
-                    match (parts.next(), parts.next()) {
-                        (Some("session"), Some(val)) => Some(val.to_string()),
-                        _ => None,
-                    }
-                })
-                .next()
-        });
-
-    let token = match token_opt {
-        Some(t) => t,
-        None => return Err(Error::Unauthorized),
-    };
+    let token = jar
+        .get("session")
+        .and_then(|cookie| Some(cookie.value().to_string()))
+        .ok_or(Error::Unauthorized)?;
 
     let token_data = match decode::<Claims>(
         &token,

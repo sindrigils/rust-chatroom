@@ -2,8 +2,7 @@ import axios from "axios";
 import camelcaseKeys from "camelcase-keys";
 
 const instance = axios.create({
-  baseURL: "/api/v1", // <<< relative path, not http://127.0.0.1:8002
-
+  baseURL: `${import.meta.env.VITE_API_URL}/v1`,
   withCredentials: true,
 });
 

@@ -1,24 +1,40 @@
+use std::net::SocketAddr;
+
 use crate::AppState;
 use crate::errors::Error;
 use crate::routing::set_sticky_session_cookie;
 
-use axum::extract::WebSocketUpgrade;
+use axum::extract::{ConnectInfo, WebSocketUpgrade};
 use axum::{
     body::Body,
     extract::{Request, State},
     response::Response,
 };
 
+use axum::http::HeaderValue;
 use tower_cookies::Cookies;
 use tracing::{debug, error, info};
 
 pub async fn websocket_handler(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     cookies: Cookies,
     ws: WebSocketUpgrade,
-    request: Request<Body>,
+    mut request: Request<Body>,
 ) -> Result<Response<Body>, Error> {
     let request_uri = request.uri().clone();
+
+    let headers = request.headers_mut();
+    let protocol = if state.config.tls_enabled {
+        "https"
+    } else {
+        "http"
+    };
+    headers.insert("X-Forwarded-Proto", HeaderValue::from_static(protocol));
+    headers.insert(
+        "X-Forwarded-For",
+        HeaderValue::from_str(&addr.ip().to_string()).map_err(|_| Error::InternalServer)?,
+    );
 
     // Step 1: Select which backend server to send this request to
     let target_server = {
@@ -58,13 +74,31 @@ pub async fn websocket_handler(
 // Handler for regular HTTP requests
 pub async fn http_handler(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     cookies: Cookies,
-    request: Request<Body>,
+    mut request: Request<Body>,
 ) -> Result<Response<Body>, Error> {
     let request_path = request.uri().path().to_string();
     let request_method = request.method().clone();
 
     debug!("Handling HTTP request: {} {}", request_method, request_path);
+
+    let headers = request.headers_mut();
+    let protocol = if state.config.tls_enabled {
+        "https"
+    } else {
+        "http"
+    };
+    headers.insert("X-Forwarded-Proto", HeaderValue::from_static(protocol));
+
+    headers.insert(
+        "X-Forwarded-For",
+        HeaderValue::from_str(&addr.ip().to_string()).map_err(|_| Error::InternalServer)?,
+    );
+
+    if let Some(host) = headers.get("host").cloned() {
+        headers.insert("X-Forwarded-Host", host);
+    }
 
     // Step 1: Select which backend server to send this request to
     let target_server = {

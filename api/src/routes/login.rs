@@ -1,4 +1,4 @@
-use axum::{Json, extract::State};
+use axum::{Json, extract::State, http::HeaderMap};
 use bcrypt::verify;
 use chrono::{Duration, Utc};
 use hyper::StatusCode;
@@ -18,6 +18,7 @@ use crate::{
 pub async fn login(
     jar: Cookies,
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(payload): Json<LoginPayload>,
 ) -> Result<StatusCode, Error> {
     let user = user::Entity::find()
@@ -40,11 +41,17 @@ pub async fn login(
     let secret = state.settings.jwt_secret;
     let token = create_jwt_token(user.id, &user.username, &secret)?;
 
+    let is_secure = headers
+        .get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok())
+        .map(|proto| proto == "https")
+        .unwrap_or(false);
+
     jar.add(
         CookieBuilder::new("session", token)
             .http_only(true)
-            .secure(false)
-            .same_site(SameSite::Lax)
+            .secure(is_secure)
+            .same_site(SameSite::None)
             .path("/")
             .build(),
     );

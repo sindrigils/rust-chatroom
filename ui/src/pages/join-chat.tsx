@@ -5,6 +5,7 @@ import styled from "styled-components";
 import { useLoadChatList } from "@api/chat/hooks";
 import type { Chat } from "@api/chat/request";
 import { theme } from "@styles/theme";
+import { useWebSocket } from "@api/use-websocket";
 
 export interface NewChat {
   type: "new_chat";
@@ -27,33 +28,38 @@ export const JoinChat = () => {
   const navigate = useNavigate();
   const { data, isLoading } = useLoadChatList();
 
-  useEffect(() => {
-    if (data) setChats(data);
-  }, [data]);
-
-  useEffect(() => {
-    const ws = new WebSocket("/ws/chat-list");
-    ws.onmessage = ({ data }) => {
-      const payload: WSData = JSON.parse(data as string);
+  useWebSocket("/chat-list", {
+    onMessage: (data: WSData) => {
       setChats((curr) => {
-        switch (payload.type) {
+        switch (data.type) {
           case "new_chat":
-            return [...curr, payload.content];
+            return [...curr, data.content];
           case "delete_chat":
-            return curr.filter((c) => c.id !== payload.chatId);
+            return curr.filter((c) => c.id !== data.chatId);
           case "user_count":
             return curr.map((c) =>
-              c.id === payload.chatId
-                ? { ...c, activeUsers: payload.content }
-                : c
+              c.id === data.chatId ? { ...c, activeUsers: data.content } : c
             );
           default:
             return curr;
         }
       });
-    };
-    return () => ws.close();
-  }, []);
+    },
+    onOpen: () => {
+      console.log("Connected to chat list");
+    },
+    onClose: (event) => {
+      console.log("Disconnected from chat list", event.code, event.reason);
+    },
+    onError: (event) => {
+      console.error("Chat list WebSocket error:", event);
+    },
+    debug: import.meta.env.DEV,
+  });
+
+  useEffect(() => {
+    if (data) setChats(data);
+  }, [data]);
 
   const handleJoinRoom = () => {
     const trimmedRoomId = roomId.trim();

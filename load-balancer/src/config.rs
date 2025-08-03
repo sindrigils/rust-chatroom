@@ -20,6 +20,7 @@ pub struct LoadBalancerConfig {
     pub host: String,
     pub port: u16,
     pub backend_servers: Vec<ServerConfig>,
+    pub tls_enabled: bool,
     pub health_check_interval: Duration,
     pub health_check_timeout: Duration,
     pub sticky_cookie_name: String,
@@ -31,7 +32,7 @@ pub struct LoadBalancerConfig {
 
 impl LoadBalancerConfig {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
-        let host = std::env::var("HOST").unwrap_or_else(|_| "0.0.0.0".to_string());
+        let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
 
         let port = std::env::var("PORT")
             .unwrap_or_else(|_| "8080".to_string())
@@ -43,6 +44,10 @@ impl LoadBalancerConfig {
         });
 
         let backend_servers = Self::parse_backend_servers(&server_str)?;
+
+        let tls_enabled = std::env::var("TLS_ENABLED")
+            .unwrap_or_else(|_| "false".to_string())
+            .parse::<bool>()?;
 
         let health_check_interval = Duration::from_secs(
             std::env::var("HEALTH_CHECK_INTERVAL")
@@ -84,6 +89,7 @@ impl LoadBalancerConfig {
             lb_secret,
             rate_limit_per_second,
             rate_limit_burst_size,
+            tls_enabled,
         })
     }
 

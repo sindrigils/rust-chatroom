@@ -13,7 +13,7 @@ pub async fn require_user_auth(
 ) -> Result<Response<Body>, Error> {
     let token = jar
         .get("session")
-        .and_then(|cookie| Some(cookie.value().to_string()))
+        .map(|cookie| cookie.value().to_string())
         .ok_or(Error::Unauthorized)?;
 
     let token_data = match decode::<Claims>(

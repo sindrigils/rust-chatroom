@@ -43,17 +43,22 @@ export const ChatRoom = () => {
         console.error("WebSocket error:", event);
       },
       onMessage: (data: WSData) => {
+        console.log("Raw WebSocket data:", data); // Add this line
+
         switch (data.type) {
           case "message":
+            console.log("Processing message:", data); // Add this line
             setMessages((prev) => [...prev, data]);
             break;
 
           case "system_message":
+            console.log("Processing system message:", data); // Add this line
             setMessages((prev) => [...prev, data]);
             break;
 
           case "user_list": {
-            const newUsers = [...new Set(data.content as string[])]; // Remove duplicates
+            console.log("Processing user list:", data); // Add this line
+            const newUsers = [...new Set(data.content as string[])];
             setActiveUsers(newUsers);
             break;
           }

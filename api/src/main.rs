@@ -11,8 +11,6 @@ use axum::{
     serve,
 };
 use dotenvy::dotenv;
-use migration::{Migrator, MigratorTrait};
-use sea_orm_migration::prelude::*;
 
 use redis::{Client as RedisClient, aio::ConnectionManager};
 use sea_orm::{Database, DatabaseConnection};
@@ -47,8 +45,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let database_url = std::env::var("DATABASE_URL")?;
     let db = Database::connect(database_url).await?;
-
-    Migrator::up(&db, None).await?;
     let settings = config::Settings::new();
 
     let redis_client = RedisClient::open(std::env::var("REDIS_URL")?)?;

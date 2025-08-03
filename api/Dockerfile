@@ -10,7 +10,6 @@ RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/li
 COPY . .
 
 RUN cargo build -p api --release
-RUN cargo build -p migration --release
 
 # --- RUNTIME STAGE ---
 FROM debian:bookworm-slim
@@ -20,7 +19,6 @@ RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/
 WORKDIR /app
 
 COPY --from=builder /workspace/target/release/api /app/api
-COPY --from=builder /workspace/target/release/migration /app/migration
 
 EXPOSE 8001
 

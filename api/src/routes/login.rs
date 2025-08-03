@@ -51,7 +51,7 @@ pub async fn login(
         CookieBuilder::new("session", token)
             .http_only(true)
             .secure(is_secure)
-            .same_site(SameSite::None)
+            .same_site(SameSite::Lax)
             .path("/")
             .build(),
     );

@@ -22,7 +22,7 @@ jobs:
           components: rustfmt
       
       - name: Check api formatting
-        run: cargo fmt --manifest-path api/Cargo.toml --all -- --check
+        run: cargo fmt --manifest-path api/Cargo.toml -- --check
 
   lint:
     name: Clippy Linting

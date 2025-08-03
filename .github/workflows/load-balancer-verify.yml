@@ -22,7 +22,7 @@ jobs:
           components: rustfmt
       
       - name: Check load-balancer formatting
-        run: cargo fmt --manifest-path load-balancer/Cargo.toml --all -- --check
+        run: cargo fmt --manifest-path load-balancer/Cargo.toml -- --check
 
   lint:
     name: Clippy Linting

@@ -1,10 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createChat,
+  loadChat,
   loadChatList,
+  loadChatListByName,
   type Chat,
   type CreateChat,
 } from "./request";
+
+export const useLoadChat = (id: number) => {
+  return useQuery<Chat>({
+    queryKey: ["chat", id],
+    queryFn: () => loadChat(id),
+  });
+};
 
 export const useCreateChat = () => {
   const queryClient = useQueryClient();
@@ -21,6 +30,14 @@ export const useCreateChat = () => {
 export const useLoadChatList = () => {
   return useQuery<Chat[]>({
     queryKey: ["chat-lists"],
-    queryFn: () => loadChatList(),
+    queryFn: loadChatList,
+  });
+};
+
+export const useLoadChatListByName = (name: string, enabled: boolean) => {
+  return useQuery<Chat[]>({
+    queryKey: ["chat-lists", name],
+    queryFn: () => loadChatListByName(name),
+    enabled,
   });
 };

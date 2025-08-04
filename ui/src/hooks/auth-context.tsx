@@ -9,6 +9,7 @@ import {
   useLoginUser,
   useCurrentUserQuery,
   useRegisterUser,
+  useLogoutUser,
 } from "@api/users/hooks";
 import type { LoginPayload, User } from "@api/users/request";
 
@@ -18,6 +19,7 @@ type AuthContextType = {
   isLoading: boolean;
   login: (data: LoginPayload) => Promise<void>;
   register: (data: LoginPayload) => Promise<void>;
+  logout: () => void;
 };
 
 const AuthContext = createContext<AuthContextType>(undefined!);
@@ -27,6 +29,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setLoading] = useState(true);
   const { refetch } = useCurrentUserQuery();
   const loginMutation = useLoginUser();
+  const logoutMutation = useLogoutUser();
   const registerMutation = useRegisterUser();
 
   useEffect(() => {
@@ -53,6 +56,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
+  const logout = () => {
+    setUser(null);
+    logoutMutation.mutateAsync();
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -61,6 +69,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         isLoading,
         login,
         register,
+        logout,
       }}
     >
       {children}

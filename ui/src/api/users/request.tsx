@@ -3,6 +3,7 @@ import { request } from "@api/request";
 export type User = {
   id: number;
   username: string;
+  avatarUrl: string;
 };
 
 export type LoginPayload = {
@@ -12,6 +13,11 @@ export type LoginPayload = {
 
 export const loginUser = async (data: LoginPayload) => {
   const response = await request.post<User>("login", data);
+  return response.data;
+};
+
+export const logoutUser = async () => {
+  const response = await request.post("logout");
   return response.data;
 };
 

@@ -6,6 +6,7 @@ export const theme = {
     surfaceHover: "var(--color-surface-hover)",
     border: "var(--color-border)",
     borderFocus: "var(--color-border-focus)",
+    focusRing: "var(--color-focus-ring)",
     textPrimary: "var(--color-text-primary)",
     textSecondary: "var(--color-text-secondary)",
     textMuted: "var(--color-text-muted)",
@@ -17,10 +18,19 @@ export const theme = {
     warning: "var(--color-warning)",
   },
 
+  gradients: {
+    accent: "var(--gradient-accent)",
+    surface: "var(--gradient-surface)",
+  },
+
+  effects: {
+    glassOverlay: "var(--glass-overlay)",
+    glassStroke: "var(--glass-stroke)",
+  },
+
   typography: {
     fontFamilyPrimary: "var(--font-family-primary)",
     fontFamilyMono: "var(--font-family-mono)",
-
     fontSize: {
       xs: "var(--font-size-xs)",
       sm: "var(--font-size-sm)",
@@ -31,14 +41,12 @@ export const theme = {
       "3xl": "var(--font-size-3xl)",
       "4xl": "var(--font-size-4xl)",
     },
-
     fontWeight: {
       normal: "var(--font-weight-normal)",
       medium: "var(--font-weight-medium)",
       semibold: "var(--font-weight-semibold)",
       bold: "var(--font-weight-bold)",
     },
-
     lineHeight: {
       tight: "var(--line-height-tight)",
       normal: "var(--line-height-normal)",

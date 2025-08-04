@@ -1,4 +1,5 @@
 use crate::{
+    clients::SessionClient,
     middleware::{require_lb_auth, require_user_auth},
     routes::{health_router, protected_router, public_router},
     ws::{chat_list_ws, chat_ws},
@@ -15,11 +16,12 @@ use dotenvy::dotenv;
 use redis::{Client as RedisClient, aio::ConnectionManager};
 use sea_orm::{Database, DatabaseConnection};
 
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::net::TcpListener;
 use tower_cookies::CookieManagerLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 
+mod clients;
 mod config;
 mod entity;
 mod errors;
@@ -35,6 +37,7 @@ pub struct AppState {
     pub settings: config::Settings,
     pub redis_client: RedisClient,
     pub redis: ConnectionManager,
+    pub session_client: Arc<SessionClient>,
 }
 
 #[tokio::main]
@@ -49,12 +52,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let redis_client = RedisClient::open(std::env::var("REDIS_URL")?)?;
     let redis_mgr = ConnectionManager::new(redis_client.clone()).await?;
+    let jwt_secret = settings.jwt_secret.clone();
 
     let state = AppState {
         db,
         settings,
         redis_client,
         redis: redis_mgr,
+        session_client: Arc::new(SessionClient::new(jwt_secret)),
     };
 
     let public = public_router().layer(from_fn_with_state(state.clone(), require_lb_auth));

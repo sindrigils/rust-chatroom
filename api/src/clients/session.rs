@@ -57,7 +57,7 @@ impl SessionClient {
         headers: HeaderMap,
         jar: Cookies,
     ) -> Result<StatusCode, Error> {
-        let token = self.create_jwt_token(user_id, &username)?;
+        let token = self.create_jwt_token(user_id, username)?;
         let is_secure = self.get_is_secure(&headers);
 
         jar.add(

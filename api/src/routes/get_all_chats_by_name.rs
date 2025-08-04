@@ -12,7 +12,7 @@ pub async fn get_all_chats_by_name(
     Path(name): Path<String>,
 ) -> Result<(StatusCode, Json<Vec<chat::Model>>), Error> {
     let chats = chat::Entity::find()
-        .filter(SimpleExpr::Custom(format!("name ILIKE '{}'", name)))
+        .filter(SimpleExpr::Custom(format!("name ILIKE '{name}%'")))
         .all(&state.db)
         .await?;
 

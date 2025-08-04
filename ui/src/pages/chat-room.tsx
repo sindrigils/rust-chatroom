@@ -1,8 +1,10 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent,
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -31,10 +33,17 @@ type Message = {
 };
 
 type WSData = {
-  type: "message" | "user_list" | "system_message";
+  type:
+    | "message"
+    | "user_list"
+    | "system_message"
+    | "suggestion"
+    | "suggestion_error";
   subtype?: "join" | "leave";
   content: string | string[];
   username?: string;
+  text?: string; // For suggestions
+  error?: string; // For suggestion errors
 };
 
 export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
@@ -50,8 +59,15 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
 
+  // Suggestion state
+  const [suggestion, setSuggestion] = useState<string>("");
+  const [suggestionVisible, setSuggestionVisible] = useState(false);
+  const suggestionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const mirrorRef = useRef<HTMLDivElement | null>(null);
 
   const { isConnected, sendMessage: sendWsMessage } = useWebSocket(
     `/chat?chat_id=${roomId}`,
@@ -120,6 +136,18 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
             break;
           }
 
+          case "suggestion": {
+            setSuggestion(data.text || "");
+            setSuggestionVisible(true);
+            break;
+          }
+
+          case "suggestion_error": {
+            console.log("Suggestion failed:", data.error);
+            setSuggestionVisible(false);
+            break;
+          }
+
           default:
             console.log("Unknown message type:", data);
         }
@@ -127,6 +155,48 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
       debug: import.meta.env.DEV,
     }
   );
+
+  // Request suggestion function
+  const requestSuggestion = useCallback(() => {
+    if (input.trim().length > 0 && messages.length > 0) {
+      const suggestionMessage = {
+        type: "request_suggestion",
+        current_input: input,
+      };
+      sendWsMessage(JSON.stringify(suggestionMessage));
+    }
+  }, [input, messages.length, sendWsMessage]);
+
+  const acceptSuggestion = () => {
+    setInput(input + suggestion);
+    setSuggestionVisible(false);
+    setSuggestion("");
+  };
+
+  // Handle input changes with suggestion logic
+  const handleInputChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    setSuggestionVisible(false);
+    setSuggestion("");
+
+    // Clear existing timeout
+    if (suggestionTimeoutRef.current) {
+      clearTimeout(suggestionTimeoutRef.current);
+    }
+
+    // Trigger suggestion when user has typed something and pauses
+    if (e.target.value.trim().length > 0) {
+      suggestionTimeoutRef.current = setTimeout(requestSuggestion, 2000);
+    }
+  };
+
+  // Update mirror element content to match textarea for positioning
+  useEffect(() => {
+    if (mirrorRef.current) {
+      // Copy the text content and add a zero-width space to measure position
+      mirrorRef.current.textContent = input + "\u200B";
+    }
+  }, [input]);
 
   const grouped = useMemo(() => {
     const byDay: Record<string, Message[]> = {};
@@ -167,15 +237,27 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
 
     try {
       setSending(true);
-      sendWsMessage(text);
+
+      const message = {
+        type: "chat_message",
+        content: text,
+      };
+
+      sendWsMessage(JSON.stringify(message));
       setInput("");
+      setSuggestionVisible(false);
     } finally {
       setSending(false);
     }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Tab" && suggestionVisible) {
+      e.preventDefault();
+      acceptSuggestion();
+    } else if (e.key === "Escape" && suggestionVisible) {
+      setSuggestionVisible(false);
+    } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
@@ -341,17 +423,31 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
       <ComposerBar>
         <ComposerInner>
           <IconGhost title="Attach">📎</IconGhost>
-          <ComposerInput
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              isConnected
-                ? "Message #room — Enter to send, Shift+Enter newline"
-                : "Disconnected - Cannot send messages"
-            }
-            disabled={!isConnected}
-          />
+          <ComposerInputContainer>
+            {/* Hidden mirror element for accurate text measurement */}
+            <MirrorElement ref={mirrorRef} />
+
+            <ComposerInput
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder={
+                isConnected
+                  ? "Message #room — Enter to send, Shift+Enter newline"
+                  : "Disconnected - Cannot send messages"
+              }
+              disabled={!isConnected}
+            />
+
+            {suggestionVisible && suggestion && (
+              <GhostTextOverlay>
+                {/* Invisible text to position the suggestion correctly */}
+                <InvisibleText>{input}</InvisibleText>
+                <SuggestionText>{suggestion}</SuggestionText>
+              </GhostTextOverlay>
+            )}
+          </ComposerInputContainer>
           <IconGhost title="Emoji">😊</IconGhost>
           <PrimaryButton
             disabled={!input.trim() || sending || !isConnected}
@@ -364,11 +460,77 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
           <span>Enter to send</span>
           <span>•</span>
           <span>Shift+Enter for newline</span>
+          {suggestionVisible && (
+            <>
+              <span>•</span>
+              <span>Tab to accept suggestion</span>
+            </>
+          )}
         </ComposerHints>
       </ComposerBar>
     </Page>
   );
 };
+
+const ComposerInputContainer = styled.div({
+  position: "relative",
+  width: "100%",
+});
+
+// Hidden mirror element that matches textarea styling exactly
+const MirrorElement = styled.div({
+  position: "absolute",
+  top: 0,
+  left: 0,
+  visibility: "hidden",
+  pointerEvents: "none",
+  whiteSpace: "pre-wrap",
+  wordWrap: "break-word",
+  // Match textarea styles exactly
+  background: "var(--color-surface-elevated)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  width: "100%",
+  height: "44px",
+  padding: "10px 12px",
+  fontSize: "var(--font-size-base)",
+  fontFamily: "var(--font-family-primary)",
+  lineHeight: "1.4",
+  resize: "none",
+});
+
+// Overlay that contains both invisible text and suggestion
+const GhostTextOverlay = styled.div({
+  position: "absolute",
+  top: "1px", // Account for border
+  left: "1px", // Account for border
+  width: "calc(100% - 2px)", // Account for left/right borders
+  height: "calc(100% - 2px)", // Account for top/bottom borders
+  pointerEvents: "none",
+  padding: "10px 12px", // Match textarea padding exactly
+  fontSize: "var(--font-size-base)",
+  fontFamily: "var(--font-family-primary)",
+  lineHeight: "1.4",
+  whiteSpace: "pre-wrap",
+  wordWrap: "break-word",
+  overflow: "hidden",
+  display: "flex",
+  alignItems: "flex-start",
+  boxSizing: "border-box", // Ensure padding is handled the same way
+});
+
+// Invisible text that takes up space to position suggestion
+const InvisibleText = styled.span({
+  color: "transparent",
+  whiteSpace: "pre-wrap",
+});
+
+// The actual suggestion text
+const SuggestionText = styled.span({
+  color: "var(--color-text-muted)",
+  opacity: 0.6,
+  whiteSpace: "pre-wrap",
+});
 
 const Page = styled.div({
   height: "100vh",
@@ -774,6 +936,9 @@ const ComposerInput = styled.textarea({
   height: 44,
   padding: "10px 12px",
   outline: "none",
+  fontSize: "var(--font-size-base)",
+  fontFamily: "var(--font-family-primary)",
+  lineHeight: "1.4",
 
   "&:disabled": {
     opacity: 0.5,

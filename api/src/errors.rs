@@ -26,9 +26,16 @@ pub enum Error {
     #[from]
     Redis(redis::RedisError),
 
+    #[from]
+    Reqwest(reqwest::Error),
+
     NotFound,
     Unauthorized,
     InternalServer,
+
+    OpenAiApi(String),
+    OpenAiRateLimit,
+    SugesstionUnavailable,
 }
 
 #[derive(Serialize)]
@@ -64,7 +71,22 @@ impl IntoResponse for Error {
                 error!("task join error: {:?}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
             }
-
+            Error::Reqwest(e) => {
+                error!("reqwest error: {:?}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+            }
+            Error::OpenAiApi(e) => {
+                error!("openai api error: {:?}", e);
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+            }
+            Error::OpenAiRateLimit => {
+                error!("openai rate limit");
+                (StatusCode::TOO_MANY_REQUESTS, "openai rate limit")
+            }
+            Error::SugesstionUnavailable => {
+                error!("suggestion unavailable");
+                (StatusCode::SERVICE_UNAVAILABLE, "suggestion unavailable")
+            }
             Error::InternalServer => (StatusCode::INTERNAL_SERVER_ERROR, "something went wrong"),
         };
 

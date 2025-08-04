@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     Extension,
@@ -8,16 +8,21 @@ use axum::{
     },
     response::IntoResponse,
 };
-use futures::{SinkExt, StreamExt};
+use futures::{SinkExt, StreamExt, lock::Mutex, stream::SplitSink};
 use redis::AsyncCommands;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
 };
+use tracing::error;
 
 use crate::{
     AppState,
+    clients::ChatMessage,
     entity::{message, online_user, user},
-    models::claims::Claims,
+    models::{
+        claims::Claims,
+        messages::{IncomingMessage, OutgoingMessage},
+    },
 };
 
 pub async fn chat_ws(
@@ -64,9 +69,12 @@ async fn handle_socket(
     username: String,
     user_id: i32,
 ) {
-    let (mut tx, mut rx_ws) = socket.split();
+    let (tx, mut rx_ws) = socket.split();
     let redis_client = state.redis_client.clone();
     let channel = format!("chat:{chat_id}");
+
+    let tx = Arc::new(Mutex::new(tx));
+    let tx_redis = tx.clone();
 
     tokio::spawn(async move {
         let conn = match redis_client.get_async_connection().await {
@@ -86,7 +94,8 @@ async fn handle_socket(
 
         while let Some(msg) = inbound.next().await {
             if let Ok(text) = msg.get_payload::<String>() {
-                if tx.send(Message::Text(text.into())).await.is_err() {
+                let mut tx_guard = tx_redis.lock().await;
+                if tx_guard.send(Message::Text(text.into())).await.is_err() {
                     break;
                 }
             } else {
@@ -103,20 +112,33 @@ async fn handle_socket(
     let key = format!("chat:{chat_id}");
     while let Some(Ok(frame)) = rx_ws.next().await {
         if let Message::Text(text) = frame {
-            let message = message::ActiveModel {
-                chat_id: Set(chat_id),
-                sender_id: Set(user_id),
-                content: Set(text.to_string()),
-                ..Default::default()
-            };
-            let _ = message.insert(&state.db).await;
+            match serde_json::from_str::<IncomingMessage>(&text) {
+                Ok(incoming_message) => match incoming_message {
+                    IncomingMessage::ChatMessage { content } => {
+                        let message = message::ActiveModel {
+                            chat_id: Set(chat_id),
+                            sender_id: Set(user_id),
+                            content: Set(content.to_string()),
+                            ..Default::default()
+                        };
+                        let _ = message.insert(&state.db).await;
 
-            let payload = serde_json::json!({
-                "type": "message",
-                "content": format!("{username}: {text}"),
-            })
-            .to_string();
-            let _: u64 = publisher.publish(&key, payload).await.unwrap_or(0);
+                        let payload = serde_json::json!({
+                            "type": "message",
+                            "content": format!("{username}: {content}"),
+                        })
+                        .to_string();
+                        let _: u64 = publisher.publish(&key, payload).await.unwrap_or(0);
+                    }
+                    IncomingMessage::RequestSuggestion { current_input } => {
+                        handle_suggestion_request(&state, chat_id, user_id, &current_input, &tx)
+                            .await;
+                    }
+                },
+                Err(e) => {
+                    error!("Unexpected error in handling user messages: {e}")
+                }
+            }
         }
     }
 }
@@ -192,4 +214,35 @@ async fn broadcast_user_list(state: &AppState, chat_id: i32) {
         .publish(format!("chat:{chat_id}"), payload)
         .await
         .unwrap_or(());
+}
+
+async fn handle_suggestion_request(
+    state: &AppState,
+    chat_id: i32,
+    user_id: i32,
+    current_input: &str,
+    tx: &Arc<Mutex<SplitSink<WebSocket, Message>>>,
+) {
+    let context = vec![ChatMessage {
+        role: "user".to_string(),
+        content: current_input.to_string(),
+    }];
+    let mut tx_guard = tx.lock().await;
+
+    match state.ollama_client.get_chat_suggestion(context).await {
+        Ok(suggestion) => {
+            let response = OutgoingMessage::Suggestion { text: suggestion };
+            if let Ok(json) = serde_json::to_string(&response) {
+                let _ = tx_guard.send(Message::Text(json.into())).await;
+            }
+        }
+        Err(_) => {
+            let response = OutgoingMessage::SuggestionError {
+                error: "Suggestion unavailable".to_string(),
+            };
+            if let Ok(json) = serde_json::to_string(&response) {
+                let _ = tx_guard.send(Message::Text(json.into())).await;
+            }
+        }
+    }
 }

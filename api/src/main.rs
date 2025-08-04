@@ -1,5 +1,5 @@
 use crate::{
-    clients::SessionClient,
+    clients::{OllamaClient, SessionClient},
     middleware::{require_lb_auth, require_user_auth},
     routes::{health_router, protected_router, public_router},
     ws::{chat_list_ws, chat_ws},
@@ -38,6 +38,7 @@ pub struct AppState {
     pub redis_client: RedisClient,
     pub redis: ConnectionManager,
     pub session_client: Arc<SessionClient>,
+    pub ollama_client: Arc<OllamaClient>,
 }
 
 #[tokio::main]
@@ -60,6 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         redis_client,
         redis: redis_mgr,
         session_client: Arc::new(SessionClient::new(jwt_secret)),
+        ollama_client: Arc::new(OllamaClient::new().unwrap()),
     };
 
     let public = public_router().layer(from_fn_with_state(state.clone(), require_lb_auth));
@@ -101,7 +103,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], state.settings.http_port));
     let listener = TcpListener::bind(addr).await?;
-    println!("Listening on {addr}");
     serve(listener, app).await?;
 
     Ok(())

@@ -2,4 +2,5 @@ pub mod chat;
 pub mod claims;
 pub mod create_user;
 pub mod login;
+pub mod messages;
 pub mod user;

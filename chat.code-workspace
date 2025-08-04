@@ -1,0 +1,16 @@
+{
+    "folders": [
+        {
+            "path": "api",
+            "name": "API"
+        },
+        {
+            "path": "load-balancer",
+            "name": "Load Balancer"
+        },
+	    {
+            "path": "ui",
+            "name": "UI"
+	    }
+    ]
+}

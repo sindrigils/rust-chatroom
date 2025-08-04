@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getCurrentUser,
   loginUser,
+  logoutUser,
   registerUser,
   type LoginPayload,
 } from "./request";
@@ -17,6 +18,18 @@ export const useLoginUser = () => {
     onSuccess: (data) => {
       queryClient.invalidateQueries({
         queryKey: ["user", data.username],
+      });
+    },
+  });
+};
+
+export const useLogoutUser = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: logoutUser,
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["currentUser"],
       });
     },
   });

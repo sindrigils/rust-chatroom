@@ -1,19 +1,12 @@
 use axum::{Json, extract::State, http::HeaderMap};
 use bcrypt::verify;
-use chrono::{Duration, Utc};
 use hyper::StatusCode;
 
-use jsonwebtoken::{EncodingKey, Header, encode};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use tower_cookies::Cookies;
-use tower_cookies::cookie::{CookieBuilder, SameSite};
 
 use crate::errors::Error;
-use crate::{
-    AppState,
-    entity::user,
-    models::{claims::Claims, login::LoginPayload},
-};
+use crate::{AppState, entity::user, models::login::LoginPayload};
 
 pub async fn login(
     jar: Cookies,
@@ -38,43 +31,10 @@ pub async fn login(
         return Err(Error::Unauthorized);
     }
 
-    let secret = state.settings.jwt_secret;
-    let token = create_jwt_token(user.id, &user.username, &secret)?;
-
-    let is_secure = headers
-        .get("x-forwarded-proto")
-        .and_then(|h| h.to_str().ok())
-        .map(|proto| proto == "https")
-        .unwrap_or(false);
-
-    jar.add(
-        CookieBuilder::new("session", token)
-            .http_only(true)
-            .secure(is_secure)
-            .same_site(SameSite::Lax)
-            .path("/")
-            .build(),
-    );
+    state
+        .session_client
+        .create_session(user.id, &user.username, headers, jar)
+        .await?;
 
     Ok(StatusCode::OK)
-}
-
-fn create_jwt_token(user_id: i32, username: &str, secret: &str) -> Result<String, Error> {
-    let expiration = Utc::now()
-        .checked_add_signed(Duration::hours(24))
-        .ok_or(Error::InternalServer)?
-        .timestamp() as usize;
-
-    let claims = Claims {
-        sub: user_id,
-        username: username.to_string(),
-        exp: expiration,
-    };
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
-    )?;
-    Ok(token)
 }

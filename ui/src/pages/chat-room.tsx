@@ -1,10 +1,34 @@
-import { useEffect, useState, useRef, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import styled from "styled-components";
-
 import { useAuth } from "@hooks/auth-context";
-import { theme } from "@styles/theme";
 import { useWebSocket } from "@api/use-websocket";
+import { useLoadChat } from "@api/chat/hooks";
+import { Spinner } from "@components/spinner";
+
+type User = {
+  id: string;
+  name: string;
+  avatar?: string;
+  role?: "owner" | "moderator" | "member";
+  online?: boolean;
+};
+
+type Message = {
+  id: string;
+  userId: string;
+  username: string;
+  content: string;
+  createdAt: string;
+  isSystem?: boolean;
+  systemType?: "join" | "leave" | "info";
+};
 
 type WSData = {
   type: "message" | "user_list" | "system_message";
@@ -13,18 +37,21 @@ type WSData = {
   username?: string;
 };
 
-export const ChatRoom = () => {
+export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
   const { roomId = "" } = useParams<{ roomId: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const [messages, setMessages] = useState<WSData[]>([]);
-  const [activeUsers, setActiveUsers] = useState<string[]>([]);
-  const [input, setInput] = useState("");
-  const [showUserList, setShowUserList] = useState(false);
+  const { data: room, isLoading } = useLoadChat(Number(roomId));
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const { isConnected, sendMessage: sendWsMessage } = useWebSocket(
     `/chat?chat_id=${roomId}`,
@@ -43,23 +70,53 @@ export const ChatRoom = () => {
         console.error("WebSocket error:", event);
       },
       onMessage: (data: WSData) => {
-        console.log("Raw WebSocket data:", data); // Add this line
+        console.log("Raw WebSocket data:", data);
 
         switch (data.type) {
-          case "message":
-            console.log("Processing message:", data); // Add this line
-            setMessages((prev) => [...prev, data]);
-            break;
+          case "message": {
+            const content = data.content as string;
+            const colonIndex = content.indexOf(":");
+            if (colonIndex !== -1) {
+              const username = content.substring(0, colonIndex);
+              const messageContent = content.substring(colonIndex + 1).trim();
 
-          case "system_message":
-            console.log("Processing system message:", data); // Add this line
-            setMessages((prev) => [...prev, data]);
+              const newMessage: Message = {
+                id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                userId: username === user?.username ? user.username : username,
+                username,
+                content: messageContent,
+                createdAt: new Date().toISOString(),
+                isSystem: false,
+              };
+              setMessages((prev) => [...prev, newMessage]);
+            }
             break;
+          }
+
+          case "system_message": {
+            const systemMessage: Message = {
+              id: `sys-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              userId: "system",
+              username: "System",
+              content: data.content as string,
+              createdAt: new Date().toISOString(),
+              isSystem: true,
+              systemType: data.subtype || "info",
+            };
+            setMessages((prev) => [...prev, systemMessage]);
+            break;
+          }
 
           case "user_list": {
-            console.log("Processing user list:", data); // Add this line
-            const newUsers = [...new Set(data.content as string[])];
-            setActiveUsers(newUsers);
+            const userList = [...new Set(data.content as string[])];
+            const newUsers: User[] = userList.map((username) => ({
+              id: username,
+              name: username,
+              avatar: undefined,
+              role: "member",
+              online: true,
+            }));
+            setUsers(newUsers);
             break;
           }
 
@@ -71,93 +128,100 @@ export const ChatRoom = () => {
     }
   );
 
-  // Auto-scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const grouped = useMemo(() => {
+    const byDay: Record<string, Message[]> = {};
+    for (const m of messages) {
+      const k = new Date(m.createdAt).toDateString();
+      (byDay[k] ||= []).push(m);
+    }
+    return Object.entries(byDay)
+      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+      .map(([day, msgs]) => {
+        msgs.sort(
+          (a, b) =>
+            new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+        );
+        const runs: { userId: string; items: Message[] }[] = [];
+        for (const m of msgs) {
+          const last = runs[runs.length - 1];
+          if (last && last.userId === m.userId && !m.isSystem) {
+            last.items.push(m);
+          } else {
+            runs.push({ userId: m.userId, items: [m] });
+          }
+        }
+        return { day, runs };
+      });
   }, [messages]);
 
-  // Focus input on mount
   useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length]);
 
-  if (!user) {
-    return null;
-  }
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || sending || !isConnected) return;
 
-  const sendMessage = () => {
-    if (!input.trim() || !isConnected) return;
-
-    sendWsMessage(input.trim());
-    setInput("");
-    inputRef.current?.focus();
+    try {
+      setSending(true);
+      sendWsMessage(text);
+      setInput("");
+    } finally {
+      setSending(false);
+    }
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      sendMessage();
+      handleSend();
     }
   };
 
-  const parseMessage = (msg: WSData) => {
-    if (msg.type === "system_message") {
-      return {
-        username: "System",
-        content: msg.content as string,
-        isOwn: false,
-        isSystem: true,
-        systemType: msg.subtype || "info",
-      };
-    }
+  if (isLoading) {
+    return <Spinner />;
+  }
 
-    const content = msg.content as string;
-    const colonIndex = content.indexOf(":");
-    if (colonIndex === -1)
-      return { username: "System", content, isOwn: false, isSystem: false };
-
-    const username = content.substring(0, colonIndex);
-    const messageContent = content.substring(colonIndex + 1).trim();
-    const isOwn = username === user.username;
-
-    return { username, content: messageContent, isOwn, isSystem: false };
-  };
-
-  const formatTime = () => {
-    return new Date().toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+  if (!room) {
+    return <div>No room exists with this id</div>;
+  }
 
   return (
     <Page>
-      <ChatContainer>
-        <ChatHeader>
-          <HeaderLeft>
-            <BackButton onClick={() => navigate("/join")}>←</BackButton>
-            <RoomInfo>
-              <RoomName>Room #{roomId}</RoomName>
-              <ConnectionStatus $isConnected={isConnected}>
-                <StatusDot $isConnected={isConnected} />
-                {isConnected ? "Connected" : "Disconnected"}
-              </ConnectionStatus>
-            </RoomInfo>
-          </HeaderLeft>
-          <HeaderRight>
-            <UserToggle
-              onClick={() => setShowUserList(!showUserList)}
-              $isActive={showUserList}
+      <TopBar>
+        <TopBarInner>
+          <IconButton
+            aria-label="Back to Browse"
+            onClick={() => (onBack ? onBack() : navigate("/join"))}
+          >
+            ←
+          </IconButton>
+          <RoomInfo>
+            <RoomName>{room.name}</RoomName>
+            <ConnectionStatus $isConnected={isConnected}>
+              <StatusDot $isConnected={isConnected} />
+              {isConnected ? "Connected" : "Disconnected"}
+            </ConnectionStatus>
+          </RoomInfo>
+          <TopActions>
+            <GhostButton
+              onClick={() => setSidebarOpen((s) => !s)}
+              aria-pressed={sidebarOpen}
+              aria-label="Toggle members"
             >
-              <UsersIcon>👥</UsersIcon>
-              <UserCount>{activeUsers.length}</UserCount>
-            </UserToggle>
-          </HeaderRight>
-        </ChatHeader>
+              {sidebarOpen ? "Hide Members" : `Show Members (${users.length})`}
+            </GhostButton>
+          </TopActions>
+        </TopBarInner>
+      </TopBar>
 
-        <ChatBody>
-          <MessagesContainer>
-            <MessagesWrapper>
+      <MainArea>
+        <ChatAndSidebar $open={sidebarOpen}>
+          <ChatShell>
+            <ChatScroll ref={scrollRef}>
               {messages.length === 0 ? (
                 <EmptyMessages>
                   <EmptyIcon>💬</EmptyIcon>
@@ -165,318 +229,262 @@ export const ChatRoom = () => {
                   <EmptySubtext>Start the conversation!</EmptySubtext>
                 </EmptyMessages>
               ) : (
-                messages.map((msg, i) => {
-                  const { username, content, isOwn, isSystem, systemType } =
-                    parseMessage(msg);
+                grouped.map(({ day, runs }) => (
+                  <section key={day} style={{ marginBottom: "var(--space-6)" }}>
+                    <DateDivider>
+                      <Hairline />
+                      <DateChip>{formatDateLabel(day)}</DateChip>
+                      <HairlineRight />
+                    </DateDivider>
 
-                  if (isSystem) {
-                    return (
-                      <SystemMessage key={i} $type={systemType}>
-                        <SystemIcon $type={systemType}>
-                          {systemType === "join" ? "👋" : "👋"}
-                        </SystemIcon>
-                        <SystemText>{content}</SystemText>
-                      </SystemMessage>
-                    );
-                  }
+                    <RunStack>
+                      {runs.map((run) => {
+                        const firstMessage = run.items[0];
+                        const u = users.find((x) => x.id === run.userId);
 
-                  const showAvatar =
-                    i === 0 ||
-                    parseMessage(messages[i - 1]).username !== username ||
-                    parseMessage(messages[i - 1]).isSystem;
+                        if (firstMessage.isSystem) {
+                          return (
+                            <SystemMessage
+                              key={firstMessage.id}
+                              $type={firstMessage.systemType}
+                            >
+                              <SystemIcon $type={firstMessage.systemType}>
+                                {firstMessage.systemType === "join"
+                                  ? "👋"
+                                  : firstMessage.systemType === "leave"
+                                  ? "👋"
+                                  : "ℹ️"}
+                              </SystemIcon>
+                              <SystemText>{firstMessage.content}</SystemText>
+                            </SystemMessage>
+                          );
+                        }
 
-                  return (
-                    <MessageGroup key={i} $isOwn={isOwn}>
-                      {showAvatar && !isOwn && (
-                        <MessageAvatar>
-                          {username.charAt(0).toUpperCase()}
-                        </MessageAvatar>
-                      )}
-                      <MessageContent
-                        $isOwn={isOwn}
-                        $showAvatar={showAvatar && !isOwn}
-                      >
-                        {showAvatar && (
-                          <MessageHeader $isOwn={isOwn}>
-                            <Username $isOwn={isOwn}>
-                              {isOwn ? "You" : username}
-                            </Username>
-                            <Timestamp>{formatTime()}</Timestamp>
-                          </MessageHeader>
-                        )}
-                        <MessageBubble $isOwn={isOwn}>{content}</MessageBubble>
-                      </MessageContent>
-                    </MessageGroup>
-                  );
-                })
+                        const isOwn = run.userId === user.username;
+
+                        return (
+                          <MessageRun key={firstMessage.id}>
+                            <AvatarWrapper>
+                              <Avatar
+                                user={u || { id: run.userId, name: run.userId }}
+                                size={36}
+                              />
+                            </AvatarWrapper>
+                            <MessageCol>
+                              <RunHeader>
+                                <strong>
+                                  {isOwn ? "You" : u?.name || run.userId}
+                                </strong>
+                                <RunTime>
+                                  {new Date(
+                                    firstMessage.createdAt
+                                  ).toLocaleTimeString([], {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </RunTime>
+                              </RunHeader>
+                              <BubbleStack>
+                                {run.items.map((m) => (
+                                  <MessageBubble key={m.id}>
+                                    {m.content}
+                                  </MessageBubble>
+                                ))}
+                              </BubbleStack>
+                            </MessageCol>
+                          </MessageRun>
+                        );
+                      })}
+                    </RunStack>
+                  </section>
+                ))
               )}
-              <div ref={messagesEndRef} />
-            </MessagesWrapper>
-          </MessagesContainer>
+              <div ref={bottomRef} />
+            </ChatScroll>
+          </ChatShell>
 
-          <UserListSidebar $isVisible={showUserList}>
-            <UserListHeader>
-              <UserListTitle>Online Users</UserListTitle>
-              <UserListCount>({activeUsers.length})</UserListCount>
-            </UserListHeader>
-            <UserListContent>
-              {activeUsers.map((username) => (
-                <UserItem
-                  key={username}
-                  $isCurrentUser={username === user.username}
-                >
-                  <UserAvatar $isCurrentUser={username === user.username}>
-                    {username.charAt(0).toUpperCase()}
-                  </UserAvatar>
-                  <UserName $isCurrentUser={username === user.username}>
-                    {username === user.username
-                      ? `${username} (You)`
-                      : username}
-                  </UserName>
-                  <UserStatus />
-                </UserItem>
+          <SidebarContainer $open={sidebarOpen}>
+            <SidebarHeader>
+              <strong>Members</strong>
+            </SidebarHeader>
+            <SidebarSearch>
+              <SearchIcon aria-hidden>🔎</SearchIcon>
+              <SearchInput placeholder="Search members..." />
+            </SidebarSearch>
+            <MemberList>
+              <MemberMeta>
+                {users.filter((u) => u.online).length} online • {users.length}{" "}
+                total
+              </MemberMeta>
+              {users.map((u) => (
+                <MemberRow key={u.id}>
+                  <Avatar user={u} size={24} />
+                  <MemberText>
+                    <MemberTop>
+                      <MemberName title={u.name}>
+                        {u.name === user.username ? `${u.name} (You)` : u.name}
+                      </MemberName>
+                      {u.role && <RolePill>{roleLabel(u.role)}</RolePill>}
+                    </MemberTop>
+                    <MemberSub>
+                      <StatusDot $isConnected={Boolean(u.online)} />
+                      {u.online ? "Online" : "Offline"}
+                    </MemberSub>
+                  </MemberText>
+                </MemberRow>
               ))}
-            </UserListContent>
-          </UserListSidebar>
-        </ChatBody>
+            </MemberList>
+          </SidebarContainer>
+        </ChatAndSidebar>
+      </MainArea>
 
-        <MessageInputContainer>
-          <InputWrapper>
-            <MessageInput
-              ref={inputRef}
-              placeholder={
-                isConnected ? "Type your message..." : "Disconnected"
-              }
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={!isConnected}
-            />
-            <SendButton
-              onClick={sendMessage}
-              disabled={!input.trim() || !isConnected}
-            >
-              <SendIcon>↗</SendIcon>
-            </SendButton>
-          </InputWrapper>
-        </MessageInputContainer>
-      </ChatContainer>
+      <ComposerBar>
+        <ComposerInner>
+          <IconGhost title="Attach">📎</IconGhost>
+          <ComposerInput
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              isConnected
+                ? "Message #room — Enter to send, Shift+Enter newline"
+                : "Disconnected - Cannot send messages"
+            }
+            disabled={!isConnected}
+          />
+          <IconGhost title="Emoji">😊</IconGhost>
+          <PrimaryButton
+            disabled={!input.trim() || sending || !isConnected}
+            onClick={handleSend}
+          >
+            {sending ? "Sending..." : "Send"}
+          </PrimaryButton>
+        </ComposerInner>
+        <ComposerHints>
+          <span>Enter to send</span>
+          <span>•</span>
+          <span>Shift+Enter for newline</span>
+        </ComposerHints>
+      </ComposerBar>
     </Page>
   );
 };
 
-const ConnectionStatus = styled.div<{
-  $isConnected: boolean;
-}>(({ $isConnected }) => ({
-  display: "flex",
-  alignItems: "center",
-  gap: theme.spacing[2],
-  fontSize: theme.typography.fontSize.sm,
-  color: $isConnected ? theme.colors.success : theme.colors.error,
-  fontWeight: theme.typography.fontWeight.medium,
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.xs,
-  },
-}));
-
-const StatusDot = styled.div<{
-  $isConnected: boolean;
-}>(({ $isConnected }) => ({
-  width: "8px",
-  height: "8px",
-  borderRadius: "50%",
-  backgroundColor: $isConnected ? theme.colors.success : theme.colors.error,
-  flexShrink: 0,
-
-  "@media (max-width: 768px)": {
-    width: "6px",
-    height: "6px",
-  },
-}));
-
 const Page = styled.div({
   height: "100vh",
-  backgroundColor: theme.colors.background,
-  fontFamily: theme.typography.fontFamilyPrimary,
-  display: "flex",
-  flexDirection: "column",
-  padding: "0",
-
-  "@media (max-width: 1440px)": {
-    padding: `${theme.spacing[3]} ${theme.spacing[4]}`,
-  },
-
-  "@media (max-width: 768px)": {
-    padding: theme.spacing[2],
-  },
-});
-
-const ChatContainer = styled.div({
-  height: "100%",
-  display: "flex",
-  flexDirection: "column",
-  maxWidth: "1400px",
-  margin: "0 auto",
-  width: "100%",
-  backgroundColor: theme.colors.surface,
-  borderRadius: "0",
+  background: "var(--color-background)",
+  color: "var(--color-text-primary)",
+  fontFamily: "var(--font-family-primary)",
+  display: "grid",
+  gridTemplateRows: "auto 1fr auto",
   overflow: "hidden",
-
-  "@media (max-width: 1440px)": {
-    borderRadius: theme.borderRadius.lg,
-    boxShadow: theme.boxShadow.lg,
-    border: `1px solid ${theme.colors.border}`,
-    height: "calc(100vh - 2rem)",
-  },
-
-  "@media (max-width: 768px)": {
-    borderRadius: theme.borderRadius.md,
-    height: "calc(100vh - 1rem)",
-  },
 });
 
-const ChatHeader = styled.header({
-  display: "flex",
+const TopBar = styled.header({
+  position: "sticky",
+  top: 0,
+  zIndex: 1030,
+  backdropFilter: "blur(8px)",
+  borderBottom: "1px solid var(--color-border)",
+  background:
+    "linear-gradient(to bottom, rgba(11,11,24,0.85), rgba(11,11,24,0.6))",
+});
+
+const TopBarInner = styled.div({
+  display: "grid",
+  gridTemplateColumns: "auto 1fr auto",
   alignItems: "center",
-  justifyContent: "space-between",
-  padding: theme.spacing[4],
-  backgroundColor: theme.colors.surfaceElevated,
-  borderBottom: `1px solid ${theme.colors.border}`,
-  flexShrink: 0,
-
-  "@media (max-width: 768px)": {
-    padding: theme.spacing[3],
-  },
+  gap: "var(--space-4)",
+  padding: "var(--space-4) var(--space-6)",
+  maxWidth: 1280,
+  margin: "0 auto",
 });
 
-const HeaderLeft = styled.div({
-  display: "flex",
-  alignItems: "center",
-  gap: theme.spacing[3],
-});
-
-const BackButton = styled.button({
-  width: "40px",
-  height: "40px",
-  borderRadius: theme.borderRadius.md,
-  border: `1px solid ${theme.colors.border}`,
-  backgroundColor: theme.colors.surface,
-  color: theme.colors.textPrimary,
-  fontSize: theme.typography.fontSize.lg,
+const IconButton = styled.button({
+  background: "var(--color-surface)",
+  color: "var(--color-text-primary)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  padding: "8px 10px",
   cursor: "pointer",
-  transition: `all ${theme.transition.normal}`,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-
-  "&:hover": {
-    backgroundColor: theme.colors.surfaceHover,
-    borderColor: theme.colors.accent,
-  },
-
-  "@media (max-width: 768px)": {
-    width: "36px",
-    height: "36px",
-    fontSize: theme.typography.fontSize.base,
-  },
+  fontWeight: 700,
+  boxShadow: "var(--shadow-sm)",
 });
 
 const RoomInfo = styled.div({
   display: "flex",
   flexDirection: "column",
-  gap: theme.spacing[1],
 });
 
-const RoomName = styled.h1({
-  fontSize: theme.typography.fontSize.xl,
-  fontWeight: theme.typography.fontWeight.semibold,
-  color: theme.colors.textPrimary,
-  margin: 0,
-  lineHeight: theme.typography.lineHeight.tight,
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.lg,
-  },
+const RoomName = styled.strong({
+  fontSize: "var(--font-size-xl)",
+  lineHeight: "var(--line-height-tight)",
 });
 
-const HeaderRight = styled.div({
-  display: "flex",
-  alignItems: "center",
-  gap: theme.spacing[3],
-});
+const ConnectionStatus = styled.div<{ $isConnected: boolean }>(
+  ({ $isConnected }) => ({
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "12px",
+    color: $isConnected ? "var(--color-success)" : "var(--color-error)",
+    fontWeight: 600,
+  })
+);
 
-const UserToggle = styled.button<{ $isActive: boolean }>(({ $isActive }) => ({
-  display: "flex",
-  alignItems: "center",
-  gap: theme.spacing[2],
-  padding: `${theme.spacing[2]} ${theme.spacing[3]}`,
-  backgroundColor: $isActive ? theme.colors.accent : theme.colors.surface,
-  color: $isActive ? "white" : theme.colors.textPrimary,
-  border: `1px solid ${$isActive ? theme.colors.accent : theme.colors.border}`,
-  borderRadius: theme.borderRadius.md,
-  fontSize: theme.typography.fontSize.sm,
-  fontWeight: theme.typography.fontWeight.medium,
-  cursor: "pointer",
-  transition: `all ${theme.transition.normal}`,
-
-  "&:hover": {
-    backgroundColor: $isActive
-      ? theme.colors.accentHover
-      : theme.colors.surfaceHover,
-    borderColor: theme.colors.accent,
-  },
-
-  "@media (max-width: 768px)": {
-    padding: `${theme.spacing[1]} ${theme.spacing[2]}`,
-    fontSize: theme.typography.fontSize.xs,
-  },
+const StatusDot = styled.div<{ $isConnected: boolean }>(({ $isConnected }) => ({
+  width: "8px",
+  height: "8px",
+  borderRadius: "50%",
+  backgroundColor: $isConnected ? "var(--color-success)" : "var(--color-error)",
+  flexShrink: 0,
 }));
 
-const UsersIcon = styled.span({
-  fontSize: theme.typography.fontSize.base,
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.sm,
-  },
-});
-
-const UserCount = styled.span({
-  fontSize: theme.typography.fontSize.sm,
-  fontWeight: theme.typography.fontWeight.semibold,
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.xs,
-  },
-});
-
-const ChatBody = styled.div({
-  flex: 1,
+const TopActions = styled.div({
   display: "flex",
-  overflow: "hidden",
-  minHeight: 0,
+  gap: 8,
 });
 
-const MessagesContainer = styled.div({
-  flex: 1,
+const GhostButton = styled.button({
+  background: "transparent",
+  color: "var(--color-text-secondary)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  padding: "8px 12px",
+  cursor: "pointer",
+  fontWeight: 600,
+});
+
+const MainArea = styled.div({
+  position: "relative",
+  padding: "var(--space-6)",
+  overflow: "hidden",
+});
+
+const ChatAndSidebar = styled.div<{ $open: boolean }>((p) => ({
+  display: "grid",
+  gridTemplateColumns: p.$open ? "1fr 280px" : "1fr 0px",
+  gap: "var(--space-6)",
+  height: "100%",
+  transition: "grid-template-columns var(--transition-normal)",
+}));
+
+const ChatShell = styled.div({
+  background: "var(--gradients-surface, var(--gradient-surface))",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-2xl)",
+  boxShadow: "var(--shadow-md)",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
-  minHeight: 0,
+  height: "100%",
 });
 
-const MessagesWrapper = styled.div({
-  flex: 1,
+const ChatScroll = styled.div({
+  padding: "var(--space-6)",
   overflowY: "auto",
-  padding: theme.spacing[4],
-  display: "flex",
-  flexDirection: "column",
-  gap: theme.spacing[3],
-
-  "@media (max-width: 768px)": {
-    padding: theme.spacing[3],
-    gap: theme.spacing[2],
-  },
+  flex: 1,
+  scrollBehavior: "smooth",
 });
 
 const EmptyMessages = styled.div({
@@ -486,423 +494,402 @@ const EmptyMessages = styled.div({
   justifyContent: "center",
   textAlign: "center",
   height: "100%",
-  gap: theme.spacing[3],
+  gap: "var(--space-3)",
 });
 
 const EmptyIcon = styled.div({
   fontSize: "3rem",
-  marginBottom: theme.spacing[2],
-
-  "@media (max-width: 768px)": {
-    fontSize: "2.5rem",
-  },
+  marginBottom: "var(--space-2)",
 });
 
 const EmptyText = styled.h3({
-  fontSize: theme.typography.fontSize.lg,
-  fontWeight: theme.typography.fontWeight.semibold,
-  color: theme.colors.textPrimary,
+  fontSize: "var(--font-size-lg)",
+  fontWeight: 600,
+  color: "var(--color-text-primary)",
   margin: 0,
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.base,
-  },
 });
 
 const EmptySubtext = styled.p({
-  fontSize: theme.typography.fontSize.base,
-  color: theme.colors.textSecondary,
+  fontSize: "var(--font-size-base)",
+  color: "var(--color-text-secondary)",
   margin: 0,
+});
 
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.sm,
-  },
+const DateDivider = styled.div({
+  display: "grid",
+  gridTemplateColumns: "1fr auto 1fr",
+  alignItems: "center",
+  gap: 12,
+  margin: "var(--space-4) 0 var(--space-3)",
+});
+
+const Hairline = styled.div({
+  height: 1,
+  background: "linear-gradient(to left, transparent, var(--color-border))",
+});
+
+const HairlineRight = styled.div({
+  height: 1,
+  background: "linear-gradient(to right, transparent, var(--color-border))",
+});
+
+const DateChip = styled.span({
+  background: "var(--color-surface)",
+  border: "1px solid var(--glass-stroke)",
+  color: "var(--color-text-muted)",
+  borderRadius: 999,
+  padding: "2px 8px",
+  fontSize: 11,
+});
+
+const RunStack = styled.div({
+  display: "grid",
+  gap: "var(--space-4)",
 });
 
 const SystemMessage = styled.div<{ $type?: string }>(({ $type }) => ({
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  gap: theme.spacing[2],
-  margin: `${theme.spacing[2]} 0`,
-  padding: `${theme.spacing[2]} ${theme.spacing[4]}`,
-  borderRadius: theme.borderRadius.md,
+  gap: "var(--space-2)",
+  margin: "var(--space-2) 0",
+  padding: "var(--space-2) var(--space-4)",
+  borderRadius: "var(--radius-md)",
   backgroundColor:
     $type === "join"
-      ? `${theme.colors.success}15`
+      ? "rgba(34, 197, 94, 0.1)"
       : $type === "leave"
-      ? `${theme.colors.error}15`
-      : `${theme.colors.textMuted}15`,
+      ? "rgba(239, 68, 68, 0.1)"
+      : "rgba(156, 163, 175, 0.1)",
   border: `1px solid ${
     $type === "join"
-      ? `${theme.colors.success}30`
+      ? "rgba(34, 197, 94, 0.3)"
       : $type === "leave"
-      ? `${theme.colors.error}30`
-      : `${theme.colors.textMuted}30`
+      ? "rgba(239, 68, 68, 0.3)"
+      : "rgba(156, 163, 175, 0.3)"
   }`,
-
-  "@media (max-width: 768px)": {
-    padding: `${theme.spacing[1]} ${theme.spacing[3]}`,
-    margin: `${theme.spacing[1]} 0`,
-  },
 }));
 
 const SystemIcon = styled.span<{ $type?: string }>(({ $type }) => ({
-  fontSize: theme.typography.fontSize.base,
+  fontSize: "var(--font-size-base)",
   filter: $type === "leave" ? "grayscale(1)" : "none",
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.sm,
-  },
 }));
 
 const SystemText = styled.span({
-  fontSize: theme.typography.fontSize.sm,
-  color: theme.colors.textSecondary,
-  fontWeight: theme.typography.fontWeight.medium,
+  fontSize: "var(--font-size-sm)",
+  color: "var(--color-text-secondary)",
+  fontWeight: 500,
   fontStyle: "italic",
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.xs,
-  },
 });
 
-const MessageGroup = styled.div<{ $isOwn: boolean }>(({ $isOwn }) => ({
-  display: "flex",
-  alignItems: "flex-start",
-  gap: theme.spacing[3],
-  justifyContent: $isOwn ? "flex-end" : "flex-start",
-  marginBottom: theme.spacing[2],
+const MessageRun = styled.article({
+  display: "grid",
+  gridTemplateColumns: "40px 1fr",
+  gap: 12,
+});
 
-  "@media (max-width: 768px)": {
-    gap: theme.spacing[2],
-    marginBottom: theme.spacing[1],
-  },
+const AvatarWrapper = styled.div({});
+
+const MessageCol = styled.div({
+  display: "grid",
+  gap: 6,
+});
+
+const RunHeader = styled.div({
+  display: "flex",
+  alignItems: "baseline",
+  gap: 8,
+});
+
+const RunTime = styled.span({
+  color: "var(--color-text-muted)",
+  fontSize: 12,
+});
+
+const BubbleStack = styled.div({
+  display: "grid",
+  gap: 6,
+});
+
+const MessageBubble = styled.div({
+  background: "var(--color-surface)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-lg)",
+  padding: "10px 12px",
+  color: "var(--color-text-primary)",
+  lineHeight: 1.6,
+  boxShadow: "var(--shadow-sm)",
+});
+
+const SidebarContainer = styled.aside<{ $open: boolean }>((p) => ({
+  width: p.$open ? 280 : 0,
+  border: p.$open ? "1px solid var(--color-border)" : "none",
+  background: "var(--color-surface)",
+  borderRadius: "var(--radius-2xl)",
+  boxShadow: p.$open ? "var(--shadow-md)" : "none",
+  overflow: "hidden",
+  display: "grid",
+  gridTemplateRows: "auto auto 1fr",
+  minHeight: "100%",
+  pointerEvents: p.$open ? "auto" : "none",
+  transition:
+    "width var(--transition-normal), box-shadow var(--transition-normal), border var(--transition-normal)",
 }));
 
-const MessageAvatar = styled.div({
-  width: "36px",
-  height: "36px",
-  borderRadius: "50%",
-  backgroundColor: theme.colors.accent,
-  color: "white",
+const SidebarHeader = styled.div({
+  padding: "10px 12px",
+  borderBottom: "1px solid var(--color-border)",
   display: "flex",
   alignItems: "center",
-  justifyContent: "center",
-  fontSize: theme.typography.fontSize.sm,
-  fontWeight: theme.typography.fontWeight.semibold,
-  flexShrink: 0,
-
-  "@media (max-width: 768px)": {
-    width: "32px",
-    height: "32px",
-    fontSize: theme.typography.fontSize.xs,
-  },
+  gap: 10,
 });
 
-const MessageContent = styled.div<{ $isOwn: boolean; $showAvatar: boolean }>(
-  ({ $isOwn, $showAvatar }) => ({
-    display: "flex",
-    flexDirection: "column",
-    gap: theme.spacing[1],
-    maxWidth: "70%",
-    marginLeft: $isOwn ? "auto" : $showAvatar ? "0" : "48px",
-
-    "@media (max-width: 768px)": {
-      maxWidth: "80%",
-      marginLeft: $isOwn ? "auto" : $showAvatar ? "0" : "40px",
-    },
-  })
-);
-
-const MessageHeader = styled.div<{ $isOwn: boolean }>(({ $isOwn }) => ({
-  display: "flex",
-  alignItems: "center",
-  gap: theme.spacing[2],
-  justifyContent: $isOwn ? "flex-end" : "flex-start",
-}));
-
-const Username = styled.span<{ $isOwn: boolean }>(({ $isOwn }) => ({
-  fontSize: theme.typography.fontSize.sm,
-  fontWeight: theme.typography.fontWeight.semibold,
-  color: $isOwn ? theme.colors.accent : theme.colors.textPrimary,
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.xs,
-  },
-}));
-
-const Timestamp = styled.span({
-  fontSize: theme.typography.fontSize.xs,
-  color: theme.colors.textMuted,
-
-  "@media (max-width: 768px)": {
-    display: "none",
-  },
-});
-
-const MessageBubble = styled.div<{ $isOwn: boolean }>(({ $isOwn }) => ({
-  padding: `${theme.spacing[3]} ${theme.spacing[4]}`,
-  borderRadius: theme.borderRadius.lg,
-  backgroundColor: $isOwn ? theme.colors.accent : theme.colors.surfaceElevated,
-  color: $isOwn ? "white" : theme.colors.textPrimary,
-  fontSize: theme.typography.fontSize.base,
-  lineHeight: theme.typography.lineHeight.relaxed,
-  wordWrap: "break-word",
-  border: `1px solid ${$isOwn ? theme.colors.accent : theme.colors.border}`,
+const SidebarSearch = styled.div({
   position: "relative",
+  padding: "8px 12px",
+  borderBottom: "1px solid var(--color-border)",
+});
 
-  "&::before": $isOwn
-    ? {
-        content: '""',
-        position: "absolute",
-        top: "12px",
-        right: "-6px",
-        width: "12px",
-        height: "12px",
-        backgroundColor: theme.colors.accent,
-        borderRight: `1px solid ${theme.colors.accent}`,
-        borderBottom: `1px solid ${theme.colors.accent}`,
-        transform: "rotate(-45deg)",
-      }
-    : {
-        content: '""',
-        position: "absolute",
-        top: "12px",
-        left: "-6px",
-        width: "12px",
-        height: "12px",
-        backgroundColor: theme.colors.surfaceElevated,
-        borderLeft: `1px solid ${theme.colors.border}`,
-        borderTop: `1px solid ${theme.colors.border}`,
-        transform: "rotate(-45deg)",
-      },
+const SearchIcon = styled.span({
+  position: "absolute",
+  left: 18,
+  top: 14,
+  color: "var(--color-text-muted)",
+  fontSize: 14,
+});
 
-  "@media (max-width: 768px)": {
-    padding: `${theme.spacing[2]} ${theme.spacing[3]}`,
-    fontSize: theme.typography.fontSize.sm,
-  },
-}));
+const SearchInput = styled.input({
+  width: "100%",
+  height: 36,
+  background: "var(--color-surface-elevated)",
+  border: "1px solid var(--color-border)",
+  color: "var(--color-text-primary)",
+  borderRadius: "var(--radius-md)",
+  padding: "8px 10px 8px 32px",
+  outline: "none",
+});
 
-const UserListSidebar = styled.aside<{ $isVisible: boolean }>(
-  ({ $isVisible }) => ({
-    width: $isVisible ? "280px" : "0",
-    backgroundColor: theme.colors.surfaceElevated,
-    borderLeft: $isVisible ? `1px solid ${theme.colors.border}` : "none",
-    display: "flex",
-    flexDirection: "column",
-    overflow: "hidden",
-    transition: `width ${theme.transition.normal}`,
+const MemberList = styled.div({
+  overflowY: "auto",
+  padding: "6px 8px 10px",
+});
 
-    "@media (max-width: 768px)": {
-      width: $isVisible ? "240px" : "0",
-    },
-  })
-);
+const MemberMeta = styled.div({
+  color: "var(--color-text-muted)",
+  fontSize: 12,
+  padding: "4px 6px",
+  marginBottom: 4,
+});
 
-const UserListHeader = styled.div({
-  padding: theme.spacing[4],
-  borderBottom: `1px solid ${theme.colors.border}`,
+const MemberRow = styled.div({
+  display: "grid",
+  gridTemplateColumns: "28px 1fr",
+  gap: 8,
+  alignItems: "center",
+  padding: 8,
+  borderRadius: "var(--radius-sm)",
+  border: "1px solid var(--color-border)",
+  background: "var(--color-surface-elevated)",
+  marginBottom: 6,
+  minHeight: 44,
+});
+
+const MemberText = styled.div({
+  minWidth: 0,
+});
+
+const MemberTop = styled.div({
   display: "flex",
   alignItems: "center",
-  gap: theme.spacing[2],
-
-  "@media (max-width: 768px)": {
-    padding: theme.spacing[3],
-  },
+  gap: 6,
+  minWidth: 0,
 });
 
-const UserListTitle = styled.h3({
-  fontSize: theme.typography.fontSize.base,
-  fontWeight: theme.typography.fontWeight.semibold,
-  color: theme.colors.textPrimary,
-  margin: 0,
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.sm,
-  },
+const MemberName = styled.span({
+  fontWeight: 600,
+  fontSize: 13,
+  whiteSpace: "nowrap",
+  textOverflow: "ellipsis",
+  overflow: "hidden",
 });
 
-const UserListCount = styled.span({
-  fontSize: theme.typography.fontSize.sm,
-  color: theme.colors.textMuted,
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.xs,
-  },
+const RolePill = styled.span({
+  background: "var(--color-surface-hover)",
+  border: "1px solid var(--color-border)",
+  color: "var(--color-text-secondary)",
+  borderRadius: 999,
+  padding: "1px 6px",
+  fontSize: 10,
 });
 
-const UserListContent = styled.div({
-  flex: 1,
-  overflowY: "auto",
-  padding: theme.spacing[2],
+const MemberSub = styled.span({
+  color: "var(--color-text-muted)",
+  fontSize: 11,
+  display: "inline-flex",
+  gap: 6,
+  alignItems: "center",
 });
 
-const UserItem = styled.div<{ $isCurrentUser: boolean }>(
-  ({ $isCurrentUser }) => ({
-    display: "flex",
-    alignItems: "center",
-    gap: theme.spacing[3],
-    padding: theme.spacing[3],
-    borderRadius: theme.borderRadius.md,
-    backgroundColor: $isCurrentUser ? theme.colors.surface : "transparent",
-    border: $isCurrentUser
-      ? `1px solid ${theme.colors.accent}`
-      : "1px solid transparent",
-    marginBottom: theme.spacing[1],
-
-    "@media (max-width: 768px)": {
-      padding: theme.spacing[2],
-      gap: theme.spacing[2],
-    },
-  })
-);
-
-const UserAvatar = styled.div<{ $isCurrentUser: boolean }>(
-  ({ $isCurrentUser }) => ({
-    width: "32px",
-    height: "32px",
-    borderRadius: "50%",
-    backgroundColor: $isCurrentUser
-      ? theme.colors.accent
-      : theme.colors.surface,
-    color: $isCurrentUser ? "white" : theme.colors.textPrimary,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: theme.typography.fontSize.sm,
-    fontWeight: theme.typography.fontWeight.semibold,
-    flexShrink: 0,
-
-    "@media (max-width: 768px)": {
-      width: "28px",
-      height: "28px",
-      fontSize: theme.typography.fontSize.xs,
-    },
-  })
-);
-
-const UserName = styled.span<{ $isCurrentUser: boolean }>(
-  ({ $isCurrentUser }) => ({
-    fontSize: theme.typography.fontSize.sm,
-    fontWeight: theme.typography.fontWeight.medium,
-    color: $isCurrentUser ? theme.colors.accent : theme.colors.textPrimary,
-    flex: 1,
-
-    "@media (max-width: 768px)": {
-      fontSize: theme.typography.fontSize.xs,
-    },
-  })
-);
-
-const UserStatus = styled.div({
-  width: "8px",
-  height: "8px",
-  borderRadius: "50%",
-  backgroundColor: theme.colors.success,
-  flexShrink: 0,
-
-  "@media (max-width: 768px)": {
-    width: "6px",
-    height: "6px",
-  },
+const ComposerBar = styled.div({
+  position: "sticky",
+  bottom: 0,
+  zIndex: 1020,
+  borderTop: "1px solid var(--color-border)",
+  background:
+    "linear-gradient(to top, rgba(11,11,24,0.9), rgba(11,11,24,0.75))",
+  backdropFilter: "blur(8px)",
 });
 
-const MessageInputContainer = styled.div({
-  padding: theme.spacing[4],
-  backgroundColor: theme.colors.surfaceElevated,
-  borderTop: `1px solid ${theme.colors.border}`,
-  flexShrink: 0,
-
-  "@media (max-width: 768px)": {
-    padding: theme.spacing[3],
-  },
+const ComposerInner = styled.div({
+  maxWidth: 1280,
+  margin: "0 auto",
+  padding: "var(--space-4) var(--space-6)",
+  display: "grid",
+  gridTemplateColumns: "auto 1fr auto auto",
+  gap: 8,
+  alignItems: "center",
 });
 
-const InputWrapper = styled.div({
-  display: "flex",
-  gap: theme.spacing[3],
-  alignItems: "flex-end",
-
-  "@media (max-width: 768px)": {
-    gap: theme.spacing[2],
-  },
+const IconGhost = styled.button({
+  background: "transparent",
+  color: "var(--color-text-secondary)",
+  border: "1px solid var(--color-border)",
+  borderRadius: "var(--radius-md)",
+  padding: "8px 10px",
+  cursor: "pointer",
+  fontWeight: 600,
+  lineHeight: 1,
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
 });
 
-const MessageInput = styled.input({
-  flex: 1,
-  padding: `${theme.spacing[3]} ${theme.spacing[4]}`,
-  backgroundColor: theme.colors.surface,
-  border: `1px solid ${theme.colors.border}`,
-  borderRadius: theme.borderRadius.lg,
-  fontSize: theme.typography.fontSize.base,
-  color: theme.colors.textPrimary,
-  lineHeight: theme.typography.lineHeight.normal,
-  transition: `border-color ${theme.transition.normal}, box-shadow ${theme.transition.normal}`,
-  outline: "none",
+const ComposerInput = styled.textarea({
+  background: "var(--color-surface-elevated)",
+  border: "1px solid var(--color-border)",
+  color: "var(--color-text-primary)",
+  borderRadius: "var(--radius-md)",
   resize: "none",
-
-  "&::placeholder": {
-    color: theme.colors.textMuted,
-  },
-
-  "&:focus": {
-    borderColor: theme.colors.borderFocus,
-    boxShadow: `0 0 0 3px ${theme.colors.borderFocus}20`,
-  },
+  width: "100%",
+  height: 44,
+  padding: "10px 12px",
+  outline: "none",
 
   "&:disabled": {
     opacity: 0.5,
     cursor: "not-allowed",
   },
-
-  "@media (max-width: 768px)": {
-    padding: `${theme.spacing[2]} ${theme.spacing[3]}`,
-    fontSize: theme.typography.fontSize.sm,
-  },
 });
 
-const SendButton = styled.button({
-  width: "44px",
-  height: "44px",
-  borderRadius: theme.borderRadius.lg,
+const PrimaryButton = styled.button<{ disabled?: boolean }>((p) => ({
+  background: "var(--gradient-accent)",
+  color: "#0b1020",
   border: "none",
-  backgroundColor: theme.colors.accent,
-  color: "white",
+  borderRadius: "var(--radius-md)",
+  padding: "10px 14px",
   cursor: "pointer",
-  transition: `all ${theme.transition.normal}`,
+  fontWeight: 700,
+  boxShadow: "var(--shadow-sm)",
+  opacity: p.disabled ? 0.7 : 1,
+  pointerEvents: p.disabled ? "none" : "auto",
+}));
+
+const ComposerHints = styled.div({
+  maxWidth: 1280,
+  margin: "4px auto 0",
+  padding: "0 var(--space-6) var(--space-4)",
+  display: "flex",
+  gap: 12,
+  color: "var(--color-text-muted)",
+  fontSize: "var(--font-size-sm)",
+});
+
+/* Avatar component */
+function Avatar({ user, size = 28 }: { user?: User; size?: number }) {
+  const initials =
+    user?.name
+      ?.split(" ")
+      .map((s) => s[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() ?? "?";
+  const hasImg = !!user?.avatar?.startsWith("http");
+
+  return (
+    <AvatarBox
+      style={{ width: size, height: size, fontSize: size * 0.35 }}
+      title={user?.name}
+    >
+      {hasImg ? (
+        <img
+          src={user!.avatar}
+          alt={user?.name}
+          width={size}
+          height={size}
+          style={{ objectFit: "cover", width: "100%", height: "100%" }}
+        />
+      ) : (
+        <DefaultAvatarIcon style={{ fontSize: size * 0.5 }}>
+          {initials}
+        </DefaultAvatarIcon>
+      )}
+      {user?.online && <OnlineDot />}
+    </AvatarBox>
+  );
+}
+
+const AvatarBox = styled.div({
+  borderRadius: "50%",
+  overflow: "hidden",
+  border: "1px solid var(--glass-stroke)",
+  background:
+    "linear-gradient(135deg, var(--color-accent), var(--color-accent-hover))",
+  display: "grid",
+  placeItems: "center",
+  color: "white",
+  fontWeight: 700,
+  position: "relative",
+});
+
+const DefaultAvatarIcon = styled.div({
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  flexShrink: 0,
-
-  "&:hover:not(:disabled)": {
-    backgroundColor: theme.colors.accentHover,
-    transform: "translateY(-1px)",
-  },
-
-  "&:active:not(:disabled)": {
-    backgroundColor: theme.colors.accentPressed,
-    transform: "translateY(0)",
-  },
-
-  "&:disabled": {
-    opacity: 0.5,
-    cursor: "not-allowed",
-    transform: "none",
-  },
-
-  "@media (max-width: 768px)": {
-    width: "40px",
-    height: "40px",
-  },
+  width: "100%",
+  height: "100%",
+  fontWeight: 700,
+  color: "white",
 });
 
-const SendIcon = styled.span({
-  fontSize: theme.typography.fontSize.lg,
-  fontWeight: theme.typography.fontWeight.bold,
-
-  "@media (max-width: 768px)": {
-    fontSize: theme.typography.fontSize.base,
-  },
+const OnlineDot = styled.span({
+  position: "absolute",
+  right: -1,
+  bottom: -1,
+  width: 10,
+  height: 10,
+  borderRadius: "50%",
+  background: "var(--color-success)",
+  border: "2px solid var(--color-surface)",
 });
+
+/* Helper functions */
+function roleLabel(role: User["role"]) {
+  if (role === "owner") return "Owner";
+  if (role === "moderator") return "Mod";
+  return "Member";
+}
+
+function formatDateLabel(dayStr: string) {
+  const d = new Date(dayStr);
+  const today = new Date();
+  const todayKey = today.toDateString();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  if (dayStr === todayKey) return "Today";
+  if (dayStr === yesterday.toDateString()) return "Yesterday";
+  return d.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}

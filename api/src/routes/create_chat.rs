@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::errors::Error;
-use crate::{entity::chat, models::create_chat::*};
+use crate::{entity::chat, models::chat::CreateChatRequest};
 use axum::extract::State;
 use axum::{extract::Json, http::StatusCode};
 use redis::AsyncCommands;

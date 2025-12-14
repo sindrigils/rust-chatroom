@@ -1,18 +1,11 @@
-use std::env;
+use serde_json::json;
+
+use tracing::debug;
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::Error;
-
-#[derive(Debug, Serialize)]
-struct ChatRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    max_tokens: Option<u32>,
-    temperature: Option<f32>,
-    stream: bool,
-}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChatMessage {
@@ -20,66 +13,95 @@ pub struct ChatMessage {
     pub content: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ChatResponse {
-    pub choices: Vec<Choice>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Choice {
-    message: ChatMessage,
-}
-
 pub struct OllamaClient {
     client: Client,
-    base_url: String,
+    url: String,
 }
 
 impl OllamaClient {
-    pub fn new() -> Result<Self, Error> {
-        let base_url =
-            env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
-
+    pub fn new(url: String) -> Result<Self, Error> {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()?;
 
-        Ok(Self { client, base_url })
+        Ok(Self { client, url })
     }
 
     pub async fn get_chat_suggestion(
         &self,
         conversation_context: Vec<ChatMessage>,
     ) -> Result<String, Error> {
-        let mut messages = vec![ChatMessage {
-    role: "system".to_string(),
-    content: "Complete the last message, it is an incomplete message and you are only supposed to suggest new words that should come after these words. Previous messages are context. Keep completion under 20 characters.".to_string(),
-}];
+        if conversation_context.is_empty() {
+            return Err(Error::SugesstionUnavailable);
+        }
 
-        messages.extend(conversation_context);
+        let (prior, last) = conversation_context.split_at(conversation_context.len() - 1);
+        let incomplete = &last[0].content;
 
-        let request = ChatRequest {
-            model: "qwen2:1.5b".to_string(),
-            messages,
-            max_tokens: Some(15),
-            temperature: Some(0.5),
-            stream: false,
-        };
+        let system_prompt = "\
+You are an autocomplete for a chat input. Continue ONLY the user's last line in the same tone.
+Rules:
+- If the last line ends MID-WORD, finish that word with NO leading space.
+- If the last line ends at a COMPLETE word, begin with ONE leading space.
+- After that, add up to 5 more likely words.
+- Use normal spaces between words. No punctuation, quotes, or newlines.
+- Return ONLY the continuation fragment (no echo, no labels).
+
+Examples:
+Last line: hello wor
+Completion: ld there
+
+Last line: hello world
+Completion:  how are you
+
+Last line: wow thats nic
+Completion: e to see you
+
+Last line: did you see this
+Completion:  today";
+        let mut messages = vec![json!({"role": "system", "content": system_prompt})];
+
+        for m in prior.iter().rev().take(5).rev() {
+            messages.push(json!({"role": "user", "content": m.content}));
+        }
+
+        messages.push(json!({"role": "user", "content": incomplete}));
+        let request = json!({
+            "model": "llama3.1:8b",
+            "messages": messages,
+            "stream": false,
+            "options": {
+                "temperature": 0.1,
+                "num_predict": 18,
+                "stop": ["\n", ".", "!", "?", ","],
+            }
+        });
+
+        debug!("OLLAMA CHAT REQUEST: {:?}", request);
 
         let response = self
             .client
-            .post(&format!("{}/v1/chat/completions", self.base_url))
+            .post(&format!("{}/api/chat", self.url))
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
             .await?;
 
-        let chat_response: ChatResponse = response.json().await?;
-        chat_response
-            .choices
-            .first()
-            .map(|choice| choice.message.content.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .ok_or(Error::SugesstionUnavailable)
+        let response_json: serde_json::Value = response.json().await?;
+        debug!("OLLAMA CHAT RESPONSE: {:?}", response_json);
+
+        let completion = response_json
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .trim_end_matches(|c: char| c == '\n')
+            .to_string();
+
+        if completion.is_empty() {
+            Err(Error::SugesstionUnavailable)
+        } else {
+            Ok(completion)
+        }
     }
 }

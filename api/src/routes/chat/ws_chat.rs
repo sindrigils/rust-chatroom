@@ -25,6 +25,12 @@ use crate::{
     },
 };
 
+#[derive(serde::Deserialize)]
+struct RecentEntry {
+    username: String,
+    content: String,
+}
+
 pub async fn chat_ws(
     Extension(claims): Extension<Claims>,
     State(state): State<AppState>,
@@ -108,7 +114,7 @@ async fn handle_socket(
     update_user_count(&state, chat_id).await;
     broadcast_user_list(&state, chat_id).await;
 
-    let mut publisher = state.redis.clone();
+    let mut redis_conn = state.redis.clone();
     let key = format!("chat:{chat_id}");
     while let Some(Ok(frame)) = rx_ws.next().await {
         if let Message::Text(text) = frame {
@@ -122,16 +128,31 @@ async fn handle_socket(
                             ..Default::default()
                         };
                         let _ = message.insert(&state.db).await;
+                        let redis_messages_key = format!("chat_messages:{chat_id}");
+                        let recent_msg = serde_json::json!({
+                            "username": username,
+                            "content": content
+                        })
+                        .to_string();
+
+                        let _ = redis_conn
+                            .lpush(&redis_messages_key, recent_msg)
+                            .await
+                            .unwrap_or(0);
+                        let _ = redis_conn
+                            .ltrim(&redis_messages_key, 0, 99)
+                            .await
+                            .unwrap_or(0);
 
                         let payload = serde_json::json!({
                             "type": "message",
                             "content": format!("{username}: {content}"),
                         })
                         .to_string();
-                        let _: u64 = publisher.publish(&key, payload).await.unwrap_or(0);
+                        let _: u64 = redis_conn.publish(&key, payload).await.unwrap_or(0);
                     }
                     IncomingMessage::RequestSuggestion { current_input } => {
-                        handle_suggestion_request(&state, chat_id, user_id, &current_input, &tx)
+                        handle_suggestion_request(state.clone(), chat_id, &current_input, &tx)
                             .await;
                     }
                 },
@@ -217,16 +238,32 @@ async fn broadcast_user_list(state: &AppState, chat_id: i32) {
 }
 
 async fn handle_suggestion_request(
-    state: &AppState,
+    mut state: AppState,
     chat_id: i32,
-    user_id: i32,
     current_input: &str,
     tx: &Arc<Mutex<SplitSink<WebSocket, Message>>>,
 ) {
-    let context = vec![ChatMessage {
+    let raw_messages: Vec<String> = state
+        .redis
+        .lrange(format!("chat_messages:{chat_id}"), 0, 4)
+        .await
+        .unwrap_or_default();
+
+    let mut context: Vec<ChatMessage> = raw_messages
+        .into_iter()
+        .filter_map(|s| serde_json::from_str::<RecentEntry>(&s).ok())
+        .rev()
+        .map(|e| ChatMessage {
+            role: "user".to_string(),
+            content: format!("{}: {}", e.username, e.content),
+        })
+        .collect();
+
+    context.push(ChatMessage {
         role: "user".to_string(),
         content: current_input.to_string(),
-    }];
+    });
+
     let mut tx_guard = tx.lock().await;
 
     match state.ollama_client.get_chat_suggestion(context).await {

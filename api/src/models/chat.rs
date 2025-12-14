@@ -20,3 +20,19 @@ pub struct CreateChatRequest {
 pub struct GetChatRequest {
     pub id: i32,
 }
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviousMessage {
+    pub username: String,
+    pub content: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetChatResponse {
+    pub id: i32,
+    pub name: String,
+    pub owner_id: i32,
+    pub messages: Vec<PreviousMessage>,
+}

@@ -20,7 +20,6 @@ pub async fn require_lb_auth(
         debug!("LB auth failed: x-lb-secret header does not match");
         return Err(Error::Unauthorized);
     }
-    debug!("LB auth successful");
     let res = next.run(request).await;
     Ok(res)
 }

@@ -1,19 +1,16 @@
 use crate::{
-    clients::{OllamaClient, SessionClient},
+    clients::{OllamaClient, RedisClient, SessionClient},
     middleware::{require_lb_auth, require_user_auth},
-    routes::{health_router, protected_router, public_router},
-    ws::{chat_list_ws, chat_ws},
+    routes::{health_router, protected_router, public_router, ws_router},
 };
 use axum::{
     Router,
     http::{Method, header},
     middleware::from_fn_with_state,
-    routing::get,
     serve,
 };
 use dotenvy::dotenv;
 
-use redis::{Client as RedisClient, aio::ConnectionManager};
 use sea_orm::{Database, DatabaseConnection};
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
@@ -29,16 +26,14 @@ mod logging;
 mod middleware;
 mod models;
 mod routes;
-mod ws;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: DatabaseConnection,
     pub settings: config::Settings,
-    pub redis_client: RedisClient,
-    pub redis: ConnectionManager,
     pub session_client: Arc<SessionClient>,
     pub ollama_client: Arc<OllamaClient>,
+    pub redis_client: Arc<RedisClient>,
 }
 
 #[tokio::main]
@@ -51,17 +46,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = Database::connect(database_url).await?;
     let settings = config::Settings::new();
 
-    let redis_client = RedisClient::open(std::env::var("REDIS_URL")?)?;
-    let redis_mgr = ConnectionManager::new(redis_client.clone()).await?;
     let jwt_secret = settings.jwt_secret.clone();
 
     let state = AppState {
         db,
-        settings,
-        redis_client,
-        redis: redis_mgr,
+        settings: settings.clone(),
         session_client: Arc::new(SessionClient::new(jwt_secret)),
-        ollama_client: Arc::new(OllamaClient::new().unwrap()),
+        ollama_client: Arc::new(OllamaClient::new(settings.ollama_url).unwrap()),
+        redis_client: Arc::new(RedisClient::new(settings.redis_url).await.unwrap()),
     };
 
     let public = public_router().layer(from_fn_with_state(state.clone(), require_lb_auth));
@@ -76,8 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/api/v1", protected);
 
     let ws_route = Router::new()
-        .route("/ws/chat", get(chat_ws))
-        .route("/ws/chat-list", get(chat_list_ws))
+        .nest("/ws", ws_router())
         .layer(from_fn_with_state(state.clone(), require_user_auth))
         .layer(from_fn_with_state(state.clone(), require_lb_auth));
 

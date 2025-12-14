@@ -42,8 +42,8 @@ type WSData = {
   subtype?: "join" | "leave";
   content: string | string[];
   username?: string;
-  text?: string; // For suggestions
-  error?: string; // For suggestion errors
+  text?: string;
+  error?: string;
 };
 
 export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
@@ -68,6 +68,19 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const mirrorRef = useRef<HTMLDivElement | null>(null);
+
+  // --- Auto-resize config ---
+  const BASE_INPUT_HEIGHT = 44; // px
+  const MAX_INPUT_HEIGHT = 200; // px cap so composer doesn't eat the screen
+
+  const resizeComposer = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    // Reset to auto so shrink works too
+    el.style.height = "auto";
+    const next = Math.min(el.scrollHeight, MAX_INPUT_HEIGHT);
+    el.style.height = `${Math.max(BASE_INPUT_HEIGHT, next)}px`;
+  }, []);
 
   const { isConnected, sendMessage: sendWsMessage } = useWebSocket(
     `/chat?chat_id=${roomId}`,
@@ -168,9 +181,11 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
   }, [input, messages.length, sendWsMessage]);
 
   const acceptSuggestion = () => {
-    setInput(input + suggestion);
+    setInput((prev) => prev + suggestion);
     setSuggestionVisible(false);
     setSuggestion("");
+    // Resize after accepting suggestion (content grows)
+    requestAnimationFrame(resizeComposer);
   };
 
   // Handle input changes with suggestion logic
@@ -178,6 +193,9 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
     setInput(e.target.value);
     setSuggestionVisible(false);
     setSuggestion("");
+
+    // Auto-resize the composer as the user types/pastes
+    requestAnimationFrame(resizeComposer);
 
     // Clear existing timeout
     if (suggestionTimeoutRef.current) {
@@ -190,13 +208,68 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
     }
   };
 
-  // Update mirror element content to match textarea for positioning
+  // Ensure initial height is correct (e.g., after mount or hydration)
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = `${BASE_INPUT_HEIGHT}px`;
+      // run once on mount to be safe
+      requestAnimationFrame(resizeComposer);
+    }
+  }, [resizeComposer]);
+
+  // Update mirror element content (for suggestion overlay positioning) and resize
   useEffect(() => {
     if (mirrorRef.current) {
-      // Copy the text content and add a zero-width space to measure position
       mirrorRef.current.textContent = input + "\u200B";
     }
-  }, [input]);
+    // Also resize when input state changes (covers programmatic updates)
+    requestAnimationFrame(resizeComposer);
+  }, [input, resizeComposer]);
+
+  const hydratedRoomRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!roomId || !room?.messages) return;
+
+    // if we already hydrated this room, do nothing
+    if (hydratedRoomRef.current === roomId) return;
+
+    // build message objects from server history
+    const now = Date.now();
+    const history = room.messages.map(
+      (
+        m: {
+          username?: string;
+          name?: string;
+          content: string;
+          createdAt?: string;
+        },
+        i: number
+      ) => ({
+        id: `hist-${i}-${now}`,
+        userId: m.username ?? m.name ?? "unknown",
+        username: m.username ?? m.name ?? "unknown",
+        content: m.content,
+        createdAt:
+          m.createdAt ??
+          new Date(now - (room.messages.length - 1 - i) * 1000).toISOString(),
+        isSystem: false as const,
+      })
+    );
+
+    // only hydrate if we don't already have live messages
+    setMessages((prev) => (prev.length > 0 ? prev : history));
+    hydratedRoomRef.current = roomId;
+
+    // cleanup when leaving this room
+    return () => {
+      if (hydratedRoomRef.current === roomId) {
+        hydratedRoomRef.current = null;
+        setMessages([]);
+      }
+    };
+  }, [roomId, room?.messages]);
 
   const grouped = useMemo(() => {
     const byDay: Record<string, Message[]> = {};
@@ -246,6 +319,10 @@ export const ChatRoom = ({ onBack }: { onBack?: () => void }) => {
       sendWsMessage(JSON.stringify(message));
       setInput("");
       setSuggestionVisible(false);
+
+      // Reset composer height back to base after send
+      const el = textareaRef.current;
+      if (el) el.style.height = `${BASE_INPUT_HEIGHT}px`;
     } finally {
       setSending(false);
     }
@@ -933,7 +1010,7 @@ const ComposerInput = styled.textarea({
   borderRadius: "var(--radius-md)",
   resize: "none",
   width: "100%",
-  height: 44,
+  minHeight: 44, // allow growth; base height is controlled by JS for smoother UX
   padding: "10px 12px",
   outline: "none",
   fontSize: "var(--font-size-base)",

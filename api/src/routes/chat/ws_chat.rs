@@ -138,7 +138,7 @@ async fn handle_socket(
                             .lpush(&redis_messages_key, recent_msg)
                             .await
                             .unwrap_or(0);
-                        let _ = redis_client
+                        redis_client
                             .ltrim(&redis_messages_key, 0, 99)
                             .await
                             .unwrap_or(());

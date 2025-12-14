@@ -82,7 +82,7 @@ pub async fn get_chat(
         .redis_client
         .lrange(&format!("chat_messages:{id}"), 0, 9)
         .await?;
-    println!("{:?}", raw_messages);
+    println!("{raw_messages:?}");
     let mut messages: Vec<PreviousMessage> = raw_messages
         .into_iter()
         .filter_map(|s| serde_json::from_str::<PreviousMessage>(&s).ok())
@@ -93,7 +93,7 @@ pub async fn get_chat(
         id: chat_row.id,
         name: chat_row.name,
         owner_id: chat_row.owner_id,
-        messages: messages,
+        messages,
     };
 
     Ok((StatusCode::OK, Json(resp)))

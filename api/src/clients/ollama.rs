@@ -78,7 +78,7 @@ Completion: u do today?";
 
         let response = self
             .client
-            .post(&format!("{}/api/chat", self.url))
+            .post(format!("{}/api/chat", self.url))
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
@@ -92,7 +92,7 @@ Completion: u do today?";
             .and_then(|m| m.get("content"))
             .and_then(|c| c.as_str())
             .unwrap_or("")
-            .trim_end_matches(|c: char| c == '\n')
+            .trim_end_matches('\n')
             .to_string();
 
         if completion.is_empty() {

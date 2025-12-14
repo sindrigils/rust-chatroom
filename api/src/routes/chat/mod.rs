@@ -1,3 +1,4 @@
+#[allow(clippy::module_inception)]
 mod chat;
 mod ws_chat;
 mod ws_chat_list;

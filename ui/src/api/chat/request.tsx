@@ -1,5 +1,10 @@
 import { request } from "@api/request";
 
+export type Message = {
+  username: string;
+  content: string;
+};
+
 export type CreateChat = {
   ownerId: number;
   name: string;
@@ -12,6 +17,7 @@ export type Chat = CreateChat & {
   visibility: "public" | "private";
   description: string;
   tags: string[];
+  messages: Message[];
 };
 
 export const loadChat = async (id: number) => {

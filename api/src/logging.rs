@@ -20,7 +20,7 @@ pub fn init_logging() -> Arc<tracing_appender::non_blocking::WorkerGuard> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "api=debug,tower_http=debug,info".into()),
+                .unwrap_or_else(|_| "api=debug,tower_http=debug".into()),
         )
         // File logging layer
         .with(

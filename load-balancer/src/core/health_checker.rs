@@ -4,7 +4,7 @@ use tracing::info;
 
 use crate::core::{ServerPool, WebSocketManager};
 
-const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(10);
+const HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(3);
 
 pub struct HealthChecker {
     server_pool: ServerPool,

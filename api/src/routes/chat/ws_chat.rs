@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use axum::{
     Extension,
@@ -8,17 +8,27 @@ use axum::{
     },
     response::IntoResponse,
 };
-use futures::{SinkExt, StreamExt};
-use redis::AsyncCommands;
+use futures::{SinkExt, StreamExt, lock::Mutex, stream::SplitSink};
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
 };
+use tracing::error;
 
 use crate::{
     AppState,
+    clients::ChatMessage,
     entity::{message, online_user, user},
-    models::claims::Claims,
+    models::{
+        claims::Claims,
+        messages::{IncomingMessage, OutgoingMessage},
+    },
 };
+
+#[derive(serde::Deserialize)]
+struct RecentEntry {
+    username: String,
+    content: String,
+}
 
 pub async fn chat_ws(
     Extension(claims): Extension<Claims>,
@@ -64,9 +74,12 @@ async fn handle_socket(
     username: String,
     user_id: i32,
 ) {
-    let (mut tx, mut rx_ws) = socket.split();
+    let (tx, mut rx_ws) = socket.split();
     let redis_client = state.redis_client.clone();
     let channel = format!("chat:{chat_id}");
+
+    let tx = Arc::new(Mutex::new(tx));
+    let tx_redis = tx.clone();
 
     tokio::spawn(async move {
         let conn = match redis_client.get_async_connection().await {
@@ -86,7 +99,8 @@ async fn handle_socket(
 
         while let Some(msg) = inbound.next().await {
             if let Ok(text) = msg.get_payload::<String>() {
-                if tx.send(Message::Text(text.into())).await.is_err() {
+                let mut tx_guard = tx_redis.lock().await;
+                if tx_guard.send(Message::Text(text.into())).await.is_err() {
                     break;
                 }
             } else {
@@ -99,24 +113,52 @@ async fn handle_socket(
     update_user_count(&state, chat_id).await;
     broadcast_user_list(&state, chat_id).await;
 
-    let mut publisher = state.redis.clone();
+    let redis_client = state.redis_client.clone();
     let key = format!("chat:{chat_id}");
     while let Some(Ok(frame)) = rx_ws.next().await {
         if let Message::Text(text) = frame {
-            let message = message::ActiveModel {
-                chat_id: Set(chat_id),
-                sender_id: Set(user_id),
-                content: Set(text.to_string()),
-                ..Default::default()
-            };
-            let _ = message.insert(&state.db).await;
+            match serde_json::from_str::<IncomingMessage>(&text) {
+                Ok(incoming_message) => match incoming_message {
+                    IncomingMessage::ChatMessage { content } => {
+                        let message = message::ActiveModel {
+                            chat_id: Set(chat_id),
+                            sender_id: Set(user_id),
+                            content: Set(content.to_string()),
+                            ..Default::default()
+                        };
+                        let _ = message.insert(&state.db).await;
+                        let redis_messages_key = format!("chat_messages:{chat_id}");
+                        let recent_msg = serde_json::json!({
+                            "username": username,
+                            "content": content
+                        })
+                        .to_string();
 
-            let payload = serde_json::json!({
-                "type": "message",
-                "content": format!("{username}: {text}"),
-            })
-            .to_string();
-            let _: u64 = publisher.publish(&key, payload).await.unwrap_or(0);
+                        let _ = redis_client
+                            .lpush(&redis_messages_key, recent_msg)
+                            .await
+                            .unwrap_or(0);
+                        redis_client
+                            .ltrim(&redis_messages_key, 0, 99)
+                            .await
+                            .unwrap_or(());
+
+                        let payload = serde_json::json!({
+                            "type": "message",
+                            "content": format!("{username}: {content}"),
+                        })
+                        .to_string();
+                        let _ = redis_client.publish(&key, payload).await;
+                    }
+                    IncomingMessage::RequestSuggestion { current_input } => {
+                        handle_suggestion_request(state.clone(), chat_id, &current_input, &tx)
+                            .await;
+                    }
+                },
+                Err(e) => {
+                    error!("Unexpected error in handling user messages: {e}")
+                }
+            }
         }
     }
 }
@@ -130,9 +172,8 @@ async fn send_join_notification(state: &AppState, chat_id: i32, username: &str) 
     })
     .to_string();
 
-    let mut redis = state.redis.clone();
     let key = format!("chat:{chat_id}");
-    let _: u64 = redis.publish(&key, payload).await.unwrap_or(0);
+    let _ = state.redis_client.publish(&key, payload).await;
 }
 
 async fn send_leave_notification(state: &AppState, chat_id: i32, username: &str) {
@@ -144,9 +185,8 @@ async fn send_leave_notification(state: &AppState, chat_id: i32, username: &str)
     })
     .to_string();
 
-    let mut redis = state.redis.clone();
     let key = format!("chat:{chat_id}");
-    let _: u64 = redis.publish(&key, payload).await.unwrap_or(0);
+    let _ = state.redis_client.publish(&key, payload).await;
 }
 
 async fn update_user_count(state: &AppState, chat_id: i32) {
@@ -163,8 +203,7 @@ async fn update_user_count(state: &AppState, chat_id: i32) {
     })
     .to_string();
 
-    let mut redis = state.redis.clone();
-    redis.publish("chat_list", payload).await.unwrap_or(());
+    let _ = state.redis_client.publish("chat_list", payload).await;
 }
 
 async fn broadcast_user_list(state: &AppState, chat_id: i32) {
@@ -187,9 +226,55 @@ async fn broadcast_user_list(state: &AppState, chat_id: i32) {
     })
     .to_string();
 
-    let mut redis = state.redis.clone();
-    redis
-        .publish(format!("chat:{chat_id}"), payload)
+    let _ = state
+        .redis_client
+        .publish(&format!("chat:{chat_id}"), payload)
+        .await;
+}
+
+async fn handle_suggestion_request(
+    state: AppState,
+    chat_id: i32,
+    current_input: &str,
+    tx: &Arc<Mutex<SplitSink<WebSocket, Message>>>,
+) {
+    let raw_messages: Vec<String> = state
+        .redis_client
+        .lrange(&format!("chat_messages:{chat_id}"), 0, 4)
         .await
-        .unwrap_or(());
+        .unwrap_or_default();
+
+    let mut context: Vec<ChatMessage> = raw_messages
+        .into_iter()
+        .filter_map(|s| serde_json::from_str::<RecentEntry>(&s).ok())
+        .rev()
+        .map(|e| ChatMessage {
+            role: "user".to_string(),
+            content: format!("{}: {}", e.username, e.content),
+        })
+        .collect();
+
+    context.push(ChatMessage {
+        role: "user".to_string(),
+        content: current_input.to_string(),
+    });
+
+    let mut tx_guard = tx.lock().await;
+
+    match state.ollama_client.get_chat_suggestion(context).await {
+        Ok(suggestion) => {
+            let response = OutgoingMessage::Suggestion { text: suggestion };
+            if let Ok(json) = serde_json::to_string(&response) {
+                let _ = tx_guard.send(Message::Text(json.into())).await;
+            }
+        }
+        Err(_) => {
+            let response = OutgoingMessage::SuggestionError {
+                error: "Suggestion unavailable".to_string(),
+            };
+            if let Ok(json) = serde_json::to_string(&response) {
+                let _ = tx_guard.send(Message::Text(json.into())).await;
+            }
+        }
+    }
 }

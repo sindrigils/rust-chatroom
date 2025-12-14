@@ -18,11 +18,11 @@ pub fn extract_server_from_cookie(
 
 pub fn extract_user_id_from_jwt(cookies: &Cookies) -> Option<String> {
     let token_cookie_name = "session";
-    if let Some(cookie) = cookies.get(token_cookie_name) {
-        if let Some(user_id) = parse_jwt_user_id(cookie.value()) {
-            debug!("Extracted user ID from JWT: {}", user_id);
-            return Some(user_id);
-        }
+    if let Some(cookie) = cookies.get(token_cookie_name)
+        && let Some(user_id) = parse_jwt_user_id(cookie.value())
+    {
+        debug!("Extracted user ID from JWT: {}", user_id);
+        return Some(user_id);
     }
     debug!("No JWT token found in cookies");
     None
@@ -35,7 +35,7 @@ pub fn parse_jwt_user_id(token: &str) -> Option<String> {
     }
 
     let mut payload_b64 = parts[1].to_string();
-    while payload_b64.len() % 4 != 0 {
+    while !payload_b64.len().is_multiple_of(4) {
         payload_b64.push('=');
     }
     let payload_b64 = payload_b64.replace('-', "+").replace('_', "/");
@@ -57,11 +57,11 @@ pub fn set_sticky_session_cookie(
     use tower_cookies::Cookie;
 
     // Don't set cookie if it already matches
-    if let Some(existing_cookie) = cookies.get(&config.sticky_cookie_name) {
-        if existing_cookie.value() == target_server.id {
-            debug!("Sticky session cookie already correct");
-            return;
-        }
+    if let Some(existing_cookie) = cookies.get(&config.sticky_cookie_name)
+        && existing_cookie.value() == target_server.id
+    {
+        debug!("Sticky session cookie already correct");
+        return;
     }
 
     // Create and set the sticky session cookie

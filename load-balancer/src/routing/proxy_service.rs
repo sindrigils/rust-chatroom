@@ -62,11 +62,11 @@ impl ProxyService {
         }
 
         // 2. Try to extract user ID from JWT token for consistent hashing
-        if let Some(user_id) = extract_user_id_from_jwt(cookies) {
-            if let Some(server) = self.get_server_for_user(&user_id, server_pool).await {
-                debug!("Using user-based routing: {} -> {}", user_id, server.id);
-                return Some(server);
-            }
+        if let Some(user_id) = extract_user_id_from_jwt(cookies)
+            && let Some(server) = self.get_server_for_user(&user_id, server_pool).await
+        {
+            debug!("Using user-based routing: {} -> {}", user_id, server.id);
+            return Some(server);
         }
 
         // 3. Fallback to least loaded server for unauthenticated users
@@ -118,10 +118,10 @@ impl ProxyService {
 
         for (key, value) in headers.iter() {
             let key_str = key.as_str();
-            if !Self::is_hop_by_hop_header(key_str) {
-                if let Ok(value_str) = value.to_str() {
-                    request_builder = request_builder.header(key_str, value_str);
-                }
+            if !Self::is_hop_by_hop_header(key_str)
+                && let Ok(value_str) = value.to_str()
+            {
+                request_builder = request_builder.header(key_str, value_str);
             }
         }
 

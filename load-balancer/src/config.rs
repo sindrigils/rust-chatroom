@@ -32,7 +32,7 @@ pub struct LoadBalancerConfig {
 
 impl LoadBalancerConfig {
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
-        let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+        let host = std::env::var("HOST").unwrap_or_else(|_| "localhost".to_string());
 
         let port = std::env::var("PORT")
             .unwrap_or_else(|_| "8080".to_string())
@@ -40,7 +40,7 @@ impl LoadBalancerConfig {
             .map_err(|e| format!("Invalid PORT: {e}"))?;
 
         let server_str = std::env::var("BACKEND_SERVERS").unwrap_or_else(|_| {
-            "http://127.0.0.1:8001,http://127.0.0.1:8002,http://127.0.0.1:8003".to_string()
+            "http://localhost:8001,http://localhost:8002,http://localhost:8003".to_string()
         });
 
         let backend_servers = Self::parse_backend_servers(&server_str)?;

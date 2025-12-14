@@ -72,13 +72,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(from_fn_with_state(state.clone(), require_user_auth))
         .layer(from_fn_with_state(state.clone(), require_lb_auth));
 
+    let allowed_origins: Vec<header::HeaderValue> = std::env::var("DOMAIN")
+        .expect("no DOMAIN found in environment")
+        .split(',')
+        .map(|s| s.trim().parse().expect("invalid origin in DOMAIN"))
+        .collect();
+
     let cors = CorsLayer::new()
-        .allow_origin(AllowOrigin::exact(
-            std::env::var("DOMAIN")
-                .expect("no DOMAIN found in environment")
-                .parse()
-                .unwrap(),
-        ))
+        .allow_origin(AllowOrigin::list(allowed_origins))
         .allow_methods(vec![Method::OPTIONS, Method::GET, Method::POST])
         .allow_headers(vec![header::CONTENT_TYPE, header::COOKIE])
         .allow_credentials(true)

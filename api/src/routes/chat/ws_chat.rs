@@ -9,7 +9,6 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt, lock::Mutex, stream::SplitSink};
-use redis::AsyncCommands;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter,
 };
@@ -114,7 +113,7 @@ async fn handle_socket(
     update_user_count(&state, chat_id).await;
     broadcast_user_list(&state, chat_id).await;
 
-    let mut redis_conn = state.redis.clone();
+    let redis_client = state.redis_client.clone();
     let key = format!("chat:{chat_id}");
     while let Some(Ok(frame)) = rx_ws.next().await {
         if let Message::Text(text) = frame {
@@ -135,21 +134,21 @@ async fn handle_socket(
                         })
                         .to_string();
 
-                        let _ = redis_conn
+                        let _ = redis_client
                             .lpush(&redis_messages_key, recent_msg)
                             .await
                             .unwrap_or(0);
-                        let _ = redis_conn
+                        let _ = redis_client
                             .ltrim(&redis_messages_key, 0, 99)
                             .await
-                            .unwrap_or(0);
+                            .unwrap_or(());
 
                         let payload = serde_json::json!({
                             "type": "message",
                             "content": format!("{username}: {content}"),
                         })
                         .to_string();
-                        let _: u64 = redis_conn.publish(&key, payload).await.unwrap_or(0);
+                        let _ = redis_client.publish(&key, payload).await;
                     }
                     IncomingMessage::RequestSuggestion { current_input } => {
                         handle_suggestion_request(state.clone(), chat_id, &current_input, &tx)
@@ -173,9 +172,8 @@ async fn send_join_notification(state: &AppState, chat_id: i32, username: &str) 
     })
     .to_string();
 
-    let mut redis = state.redis.clone();
     let key = format!("chat:{chat_id}");
-    let _: u64 = redis.publish(&key, payload).await.unwrap_or(0);
+    let _ = state.redis_client.publish(&key, payload).await;
 }
 
 async fn send_leave_notification(state: &AppState, chat_id: i32, username: &str) {
@@ -187,9 +185,8 @@ async fn send_leave_notification(state: &AppState, chat_id: i32, username: &str)
     })
     .to_string();
 
-    let mut redis = state.redis.clone();
     let key = format!("chat:{chat_id}");
-    let _: u64 = redis.publish(&key, payload).await.unwrap_or(0);
+    let _ = state.redis_client.publish(&key, payload).await;
 }
 
 async fn update_user_count(state: &AppState, chat_id: i32) {
@@ -206,8 +203,7 @@ async fn update_user_count(state: &AppState, chat_id: i32) {
     })
     .to_string();
 
-    let mut redis = state.redis.clone();
-    redis.publish("chat_list", payload).await.unwrap_or(());
+    let _ = state.redis_client.publish("chat_list", payload).await;
 }
 
 async fn broadcast_user_list(state: &AppState, chat_id: i32) {
@@ -230,22 +226,21 @@ async fn broadcast_user_list(state: &AppState, chat_id: i32) {
     })
     .to_string();
 
-    let mut redis = state.redis.clone();
-    redis
-        .publish(format!("chat:{chat_id}"), payload)
-        .await
-        .unwrap_or(());
+    let _ = state
+        .redis_client
+        .publish(&format!("chat:{chat_id}"), payload)
+        .await;
 }
 
 async fn handle_suggestion_request(
-    mut state: AppState,
+    state: AppState,
     chat_id: i32,
     current_input: &str,
     tx: &Arc<Mutex<SplitSink<WebSocket, Message>>>,
 ) {
     let raw_messages: Vec<String> = state
-        .redis
-        .lrange(format!("chat_messages:{chat_id}"), 0, 4)
+        .redis_client
+        .lrange(&format!("chat_messages:{chat_id}"), 0, 4)
         .await
         .unwrap_or_default();
 

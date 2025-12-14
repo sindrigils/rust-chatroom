@@ -12,7 +12,6 @@ use crate::{
 };
 
 use migration::SimpleExpr;
-use redis::AsyncCommands;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, EntityTrait, QueryFilter, QuerySelect, sea_query::Expr,
 };
@@ -71,7 +70,7 @@ pub async fn get_all_chats_by_name(
 }
 
 pub async fn get_chat(
-    State(mut state): State<AppState>,
+    State(state): State<AppState>,
     Path(id): Path<i32>,
 ) -> Result<(StatusCode, Json<GetChatResponse>), Error> {
     let chat_row = chat::Entity::find_by_id(id)
@@ -80,8 +79,8 @@ pub async fn get_chat(
         .ok_or(Error::NotFound)?;
 
     let raw_messages: Vec<String> = state
-        .redis
-        .lrange(format!("chat_messages:{id}"), 0, 9)
+        .redis_client
+        .lrange(&format!("chat_messages:{id}"), 0, 9)
         .await?;
     println!("{:?}", raw_messages);
     let mut messages: Vec<PreviousMessage> = raw_messages

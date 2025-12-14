@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use axum::{
     extract::{
         State, WebSocketUpgrade,
@@ -6,9 +8,8 @@ use axum::{
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
-use redis::Client as RedisClient;
 
-use crate::AppState;
+use crate::{AppState, clients::RedisClient};
 
 pub async fn chat_list_ws(
     State(state): State<AppState>,
@@ -19,7 +20,7 @@ pub async fn chat_list_ws(
     })
 }
 
-async fn handle_chat_list_socket(socket: WebSocket, redis_client: RedisClient) {
+async fn handle_chat_list_socket(socket: WebSocket, redis_client: Arc<RedisClient>) {
     let (mut tx, mut rx_ws) = socket.split();
     let channel = "chat_list".to_string();
 

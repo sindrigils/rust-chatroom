@@ -48,17 +48,14 @@ Rules:
 - Return ONLY the continuation fragment (no echo, no labels).
 
 Examples:
-Last line: hello wor
-Completion: ld there
+Last line: Hello,
+Completion: how are you?
 
-Last line: hello world
-Completion:  how are you
+Last line: I'm good,
+Completion: thank you!
 
-Last line: wow thats nic
-Completion: e to see you
-
-Last line: did you see this
-Completion:  today";
+Last line: What did yo
+Completion: u do today?";
         let mut messages = vec![json!({"role": "system", "content": system_prompt})];
 
         for m in prior.iter().rev().take(5).rev() {
